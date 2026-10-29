@@ -46,4 +46,4 @@
 
 ## Repositório e entrega
 - [x] Criar/atualizar o repositório `https://github.com/lincolncartaxo/lclobras` com o código baseado no `https://github.com/lincolncartaxo/lclpo`; publicar o código na branch principal sem reescrever ou forçar o histórico remoto (commit inicial `a924ee8`).
-- [ ] Enviar as mudanças do painel administrativo à branch `main` do repositório `https://github.com/lincolncartaxo/lclobras` e registrar o checkpoint do projeto sem force-push.
+- [x] Enviar as mudanças do painel administrativo à branch `main` do repositório `https://github.com/lincolncartaxo/lclobras` e registrar o checkpoint do projeto sem force-push (commit `807f6c9`).
