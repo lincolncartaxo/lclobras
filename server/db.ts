@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { count } from "drizzle-orm";
 import {
   businessRecords,
   recordAttachments,
@@ -410,16 +411,21 @@ export async function updateFinancialRecordSafely(
 export async function listBusinessUsers() {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  return db
+  const rows = await db
     .select({
       id: users.id,
       name: users.name,
       email: users.email,
       role: users.role,
       operationalRole: users.operationalRole,
+      openId: users.openId,
     })
     .from(users)
     .orderBy(asc(users.name));
+  return rows.map(({ openId, ...person }) => ({
+    ...person,
+    isOwner: openId === ENV.ownerOpenId,
+  }));
 }
 
 export async function setUserOperationalRole(
@@ -429,6 +435,95 @@ export async function setUserOperationalRole(
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await db.update(users).set({ operationalRole }).where(eq(users.id, id));
+}
+
+export class UserAccountRoleChangeError extends Error {
+  constructor(
+    readonly reason:
+      | "not_found"
+      | "self_change"
+      | "last_admin"
+      | "owner_required"
+  ) {
+    const messages = {
+      not_found: "Usuário não encontrado.",
+      self_change: "Um administrador não pode alterar o próprio papel de aplicação.",
+      last_admin: "Não é possível rebaixar o último superusuário admin.",
+      owner_required: "A conta proprietária do projeto deve permanecer como superusuário admin.",
+    };
+    super(messages[reason]);
+    this.name = "UserAccountRoleChangeError";
+  }
+}
+
+export async function setUserAccountRoleSafely(
+  id: number,
+  role: User["role"],
+  actorId: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db.transaction(async tx => {
+    const accountRows = await tx
+      .select({ id: users.id, role: users.role, openId: users.openId })
+      .from(users)
+      .orderBy(asc(users.id))
+      .for("update");
+    const target = accountRows.find(account => account.id === id);
+    if (!target) throw new UserAccountRoleChangeError("not_found");
+    if (target.openId === ENV.ownerOpenId && role !== "admin") {
+      throw new UserAccountRoleChangeError("owner_required");
+    }
+    if (target.id === actorId && target.role !== role) {
+      throw new UserAccountRoleChangeError("self_change");
+    }
+    if (
+      target.role === "admin" &&
+      role === "user" &&
+      accountRows.filter(account => account.role === "admin").length <= 1
+    ) {
+      throw new UserAccountRoleChangeError("last_admin");
+    }
+    if (target.role !== role) {
+      await tx.update(users).set({ role }).where(eq(users.id, id));
+    }
+    return { previousRole: target.role, role };
+  });
+}
+
+export async function getAdminDashboardCounts() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [moduleRows, userRows, attachmentRows, settlementRows] =
+    await Promise.all([
+      db
+        .select({ module: businessRecords.module, total: count() })
+        .from(businessRecords)
+        .groupBy(businessRecords.module),
+      db
+        .select({ role: users.role, total: count() })
+        .from(users)
+        .groupBy(users.role),
+      db.select({ total: count() }).from(recordAttachments),
+      db.select({ total: count() }).from(recordSettlements),
+    ]);
+  const moduleCounts = Object.fromEntries(
+    moduleRows.map(row => [row.module, Number(row.total)])
+  );
+  const userCount = userRows.reduce((sum, row) => sum + Number(row.total), 0);
+  return {
+    moduleCounts,
+    totalRecords: Object.values(moduleCounts).reduce(
+      (sum, total) => sum + total,
+      0
+    ),
+    userCount,
+    adminCount: Number(
+      userRows.find(row => row.role === "admin")?.total ?? 0
+    ),
+    attachmentCount: Number(attachmentRows[0]?.total ?? 0),
+    settlementCount: Number(settlementRows[0]?.total ?? 0),
+  };
 }
 
 export async function insertRecordAttachment(

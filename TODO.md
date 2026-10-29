@@ -2,7 +2,14 @@
 
 ## Aplicação, identidade e acesso
 - [x] Criar o app de controle de obras denominado **LclObras**, baseado no app **LclPO**, com interface operacional responsiva em português e registros persistentes; manter autenticação Manus real e não usar usuário fictício.
+- [x] Promover a única conta já cadastrada para `admin`; esse perfil de superusuário pode realizar todas as operações do app.
 - [x] Disponibilizar atribuição de perfis operacionais **almoxarife** e **encarregado** aos usuários; validar as permissões no servidor, além de refletir as ações permitidas na interface.
+
+## Painel administrativo, CRUD e usuários
+- [x] Disponibilizar um painel de administração, acessível somente a `admin`, com visão geral e atalhos para CRUD de todos os módulos e registros operacionais do banco, usando as telas e validações de domínio existentes.
+- [x] Aplicar o pedido: “o ideal seria que esse admin tivesse acesso a um painel de administração com crud para todo o banco de dados inclusive permissões/perfis de usuários cadastrados”. Administradores podem consultar, criar, editar e excluir registros operacionais em todos os módulos, inclusive pedidos, entradas/recebimentos e retiradas, sem contornar validações de obra, centro de custo, estoque, contratos ou finanças.
+- [x] Permitir que o admin altere, para contas que já autenticaram pelo Manus, o papel da aplicação (`user`/`admin`) e o perfil operacional (`administrativo`/`almoxarife`/`encarregado`), separadamente; bloquear a remoção do último administrador e qualquer autodemissão. A conta proprietária do projeto permanece como admin, pois o login a promove automaticamente. Identidades de conta continuam sendo criadas pela autenticação Manus, não por usuários fictícios.
+- [x] Preservar as salvaguardas: baixas financeiras são append-only; registros e movimentos com referências ou histórico protegido não podem ser apagados de forma destrutiva; tabelas técnicas internas não são editadas como dados de negócio.
 
 ## Obras, contratos, orçamento e centros de custo
 - [x] Disponibilizar cadastro de clientes e associar cada obra/contrato a um cliente cadastrado.
@@ -38,4 +45,5 @@
 - [x] Disponibilizar controle do cronograma de obra.
 
 ## Repositório e entrega
-- [ ] Criar/atualizar o repositório `https://github.com/lincolncartaxo/lclobras` com o código baseado no `https://github.com/lincolncartaxo/lclpo`; publicar o código na branch principal sem reescrever ou forçar o histórico remoto.
+- [x] Criar/atualizar o repositório `https://github.com/lincolncartaxo/lclobras` com o código baseado no `https://github.com/lincolncartaxo/lclpo`; publicar o código na branch principal sem reescrever ou forçar o histórico remoto (commit inicial `a924ee8`).
+- [ ] Enviar as mudanças do painel administrativo à branch `main` do repositório `https://github.com/lincolncartaxo/lclobras` e registrar o checkpoint do projeto sem force-push.

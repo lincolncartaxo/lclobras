@@ -1,10 +1,10 @@
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, ShieldCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 
-const roleLabels: Record<string, string> = {
+const operationalRoleLabels: Record<string, string> = {
   administrativo: "Administrativo",
   almoxarife: "Almoxarife",
   encarregado: "Encarregado",
@@ -16,10 +16,21 @@ export default function UsersPage() {
     enabled: user?.role === "admin",
   });
   const utils = trpc.useUtils();
-  const update = trpc.people.setOperationalRole.useMutation({
+  const updateOperationalRole = trpc.people.setOperationalRole.useMutation({
     onSuccess: async () => {
       await utils.people.list.invalidate();
       toast.success("Perfil operacional atualizado.");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const updateAccountRole = trpc.people.setAccountRole.useMutation({
+    onSuccess: async result => {
+      await utils.people.list.invalidate();
+      toast.success(
+        result.role === "admin"
+          ? "Usuário promovido a superusuário admin."
+          : "Acesso administrativo removido do usuário."
+      );
     },
     onError: error => toast.error(error.message),
   });
@@ -33,10 +44,10 @@ export default function UsersPage() {
           </span>
           <div>
             <span className="eyebrow">ADMINISTRAÇÃO</span>
-            <h1>Usuários e perfis</h1>
+            <h1>Usuários e permissões</h1>
             <p>
-              Atribua o perfil operacional que controla os lançamentos do
-              almoxarifado.
+              Gerencie o acesso total do app e os papéis operacionais de cada
+              conta autenticada.
             </p>
           </div>
         </div>
@@ -45,17 +56,16 @@ export default function UsersPage() {
         <section className="panel access-denied">
           <ShieldCheck size={27} />
           <h2>Acesso restrito</h2>
-          <p>
-            Apenas administradores podem consultar ou alterar os perfis de
-            usuários.
-          </p>
+          <p>Apenas superusuários admin podem consultar ou alterar perfis.</p>
         </section>
       ) : (
         <>
           <div className="permission-note">
-            <AlertTriangle size={15} /> Pedidos e recebimentos são restritos ao
-            almoxarife. Retiradas são restritas ao encarregado. As permissões
-            também são verificadas no servidor.
+            <AlertTriangle size={15} /> O papel <strong>Admin</strong> permite
+            todas as operações e a gestão de usuários. Contas são criadas pelo
+            login Manus; esta tela altera papéis de contas já cadastradas. Para
+            evitar lockout, não é possível rebaixar a própria conta nem o último
+            administrador. A conta proprietária do projeto permanece como admin.
           </div>
           <section className="table-card">
             <div className="data-table-wrap">
@@ -64,7 +74,7 @@ export default function UsersPage() {
                   <tr>
                     <th>Usuário</th>
                     <th>E-mail</th>
-                    <th>Perfil da conta</th>
+                    <th>Papel da aplicação</th>
                     <th>Perfil operacional</th>
                   </tr>
                 </thead>
@@ -84,22 +94,53 @@ export default function UsersPage() {
                       <tr key={person.id}>
                         <td className="record-primary">
                           {person.name || "Usuário"}
+                          {person.id === user.id && (
+                            <span className="record-sub">Sua conta</span>
+                          )}
                         </td>
                         <td>{person.email || "—"}</td>
                         <td>
-                          <span className="role-chip">
-                            {person.role === "admin"
-                              ? "Administrador"
-                              : "Usuário"}
-                          </span>
+                          <select
+                            className={
+                              person.role === "admin" ? "account-role-admin" : ""
+                            }
+                            value={person.role}
+                            disabled={
+                              person.id === user.id ||
+                              person.isOwner ||
+                              updateAccountRole.isPending
+                            }
+                            aria-label={`Papel da aplicação de ${person.name || person.email}`}
+                            title={
+                              person.isOwner
+                                ? "A conta proprietária do projeto deve permanecer como superusuário admin."
+                                : person.id === user.id
+                                ? "Outro administrador deve alterar seu papel."
+                                : "Alterar papel de acesso ao aplicativo"
+                            }
+                            onChange={event =>
+                              updateAccountRole.mutate({
+                                id: person.id,
+                                role: event.target.value as "user" | "admin",
+                              })
+                            }
+                          >
+                            <option value="user">Usuário</option>
+                            <option value="admin">Superusuário admin</option>
+                          </select>
+                          {person.isOwner && (
+                            <span className="record-sub">
+                              Conta proprietária protegida
+                            </span>
+                          )}
                         </td>
                         <td>
                           <select
                             value={person.operationalRole}
-                            disabled={update.isPending}
+                            disabled={updateOperationalRole.isPending}
                             aria-label={`Perfil operacional de ${person.name || person.email}`}
                             onChange={event =>
-                              update.mutate({
+                              updateOperationalRole.mutate({
                                 id: person.id,
                                 operationalRole: event.target.value as
                                   | "administrativo"
@@ -108,7 +149,7 @@ export default function UsersPage() {
                               })
                             }
                           >
-                            {Object.entries(roleLabels).map(
+                            {Object.entries(operationalRoleLabels).map(
                               ([value, label]) => (
                                 <option value={value} key={value}>
                                   {label}
@@ -133,12 +174,17 @@ export default function UsersPage() {
           </section>
           <section className="role-explainer">
             <div>
+              <span className="role-dot admin" />
+              <strong>Admin — superusuário</strong>
+              <p>
+                Acesso a todos os módulos e operações, incluindo pedidos,
+                recebimentos, retiradas e administração de usuários.
+              </p>
+            </div>
+            <div>
               <span className="role-dot stock" />
               <strong>Almoxarife</strong>
-              <p>
-                Pode criar e editar pedidos e entradas/recebimentos de
-                materiais.
-              </p>
+              <p>Pode criar e editar pedidos e entradas/recebimentos.</p>
             </div>
             <div>
               <span className="role-dot field" />
@@ -149,9 +195,8 @@ export default function UsersPage() {
               <span className="role-dot admin" />
               <strong>Administrativo</strong>
               <p>
-                Opera os demais módulos. Para registrar movimentos de estoque,
-                precisa também receber o perfil de almoxarife ou encarregado;
-                administradores da plataforma mantêm acesso de supervisão.
+                Opera os demais módulos, sem substituir os papéis de campo nem
+                o superusuário admin.
               </p>
             </div>
           </section>

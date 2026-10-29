@@ -14,6 +14,7 @@ import {
 import {
   deleteBusinessRecord,
   getBusinessRecord,
+  getAdminDashboardCounts,
   getRecordAttachment,
   insertBusinessRecord,
   insertStockMovement,
@@ -24,12 +25,14 @@ import {
   listBusinessUsers,
   listRecordAttachments,
   listRecordSettlements,
+  UserAccountRoleChangeError,
   InsufficientStockError,
   RecordHasSettlementsError,
   normalizeStockMaterial,
   normalizeStockUnit,
   SettlementExceedsBalanceError,
   SettledAmountExceededError,
+  setUserAccountRoleSafely,
   setUserOperationalRole,
   updateFinancialRecordSafely,
   updateStockMovement,
@@ -39,6 +42,7 @@ import { storageGetSignedUrl, storagePut } from "./storage";
 
 const moduleSchema = z.enum(BUSINESS_MODULE_IDS);
 const roleSchema = z.enum(["administrativo", "almoxarife", "encarregado"]);
+const accountRoleSchema = z.enum(["user", "admin"]);
 const attachmentCategorySchema = z.enum([
   "contrato",
   "assinatura_recebimento",
@@ -1583,6 +1587,33 @@ export const appRouter = router({
         await setUserOperationalRole(input.id, input.operationalRole);
         return { success: true };
       }),
+    setAccountRole: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          role: accountRoleSchema,
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await setUserAccountRoleSafely(input.id, input.role, ctx.user.id);
+        } catch (error) {
+          if (error instanceof UserAccountRoleChangeError) {
+            const code =
+              error.reason === "not_found"
+                ? "NOT_FOUND"
+                : error.reason === "self_change" ||
+                    error.reason === "owner_required"
+                  ? "FORBIDDEN"
+                  : "PRECONDITION_FAILED";
+            fail(code, error.message);
+          }
+          throw error;
+        }
+      }),
+  }),
+  admin: router({
+    overview: adminProcedure.query(() => getAdminDashboardCounts()),
   }),
 });
 

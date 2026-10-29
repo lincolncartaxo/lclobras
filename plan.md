@@ -33,6 +33,7 @@ Os registros de negócio usam estrutura compartilhada, com `module`, título/có
 - `client/src/pages/Home.tsx`: painel executivo e indicadores por obra.
 - `client/src/pages/ModulePage.tsx`: cadastros/listagens operacionais, relatórios de fluxo, anexos e baixas.
 - `client/src/pages/UsersPage.tsx`: atribuição administrativa dos perfis operacionais.
+- `client/src/pages/AdminDashboardPage.tsx`: visão geral e atalhos centrais para operações administrativas.
 - `client/src/components/DashboardLayout.tsx`: navegação e identidade do LclObras.
 - `client/src/modules/definitions.ts`: nomes, grupos, campos e regras da interface por módulo.
 - `client/public/manus-routes.json`: rotas públicas de página reconhecidas pelo WebDev.
@@ -61,3 +62,12 @@ Três direções possíveis, com probabilidades residuais: **blueprint editorial
 ## Decisões recuperadas da captura do projeto anterior
 
 A captura enviada pelo usuário reforça o modelo financeiro reconciliável, a geração vinculada de contas a pagar, as baixas parciais, a prevenção de reversões/duplicidades, a aprovação antes de reconhecer medições e a compatibilidade estrita entre obra e centro de custo. Essas regras estão detalhadas no modelo de domínio acima e nos critérios completos do `TODO.md`.
+
+
+## Extensão aprovada: painel de administração
+
+O `role=admin` é o papel de superusuário da aplicação, separado de `operationalRole`: pode consultar, criar, editar e excluir registros operacionais em todos os módulos, inclusive pedidos, recebimentos e retiradas, sujeito às validações de integridade do domínio. O painel `/administracao` será visível somente a administradores, mostrará totais por módulo e atalhos para as telas que já oferecem o CRUD validado; não haverá edição SQL genérica que contorne as regras de obra, centro de custo, estoque, contratos ou finanças.
+
+A administração de usuários listará contas que já autenticaram pelo Manus e permitirá ajustar separadamente o papel da aplicação (`user`/`admin`) e o perfil operacional (`administrativo`/`almoxarife`/`encarregado`). O servidor deve impedir a remoção do último administrador e qualquer autodemissão. A conta proprietária do projeto permanece como admin, coerente com a promoção automática no login. Contas não são inventadas manualmente: sua identidade vem do OAuth Manus. Baixas financeiras permanecem append-only e movimentos/documentos preservam a trilha de auditoria; as ações administrativas não podem apagar histórico financeiro ou referências protegidas.
+
+A implementação reutilizará `adminProcedure`, `canWriteModule`, os procedimentos de CRUD por módulo e o banco atual, sem nova tabela ou migração. `client/src/pages/AdminDashboardPage.tsx` será o índice central, `UsersPage.tsx` receberá controles para ambos os papéis, `DashboardLayout.tsx` exibirá a entrada apenas ao admin, e `App.tsx`/`client/public/manus-routes.json` declararão a rota. `server/routers.ts` fornecerá o resumo agregado protegido e a alteração de papel; `server/db.ts` executará mudanças de papel com bloqueio transacional e salvaguardas para evitar lockout.

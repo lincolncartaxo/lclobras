@@ -9,6 +9,7 @@ import {
   PanelLeftClose,
   LogOut,
   UserRound,
+  ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -16,6 +17,7 @@ import { Button } from "./ui/button";
 
 const headings: Record<string, string> = {
   "/": "Visão geral",
+  "/administracao": "Painel de administração",
   "/usuarios": "Usuários e perfis",
 };
 
@@ -123,6 +125,14 @@ export default function DashboardLayout({
           {user.role === "admin" && (
             <div className="nav-group">
               <div className="nav-group-title">Administração</div>
+              <Link
+                href="/administracao"
+                className={`nav-link ${location === "/administracao" ? "active" : ""}`}
+                onClick={() => setMobileOpen(false)}
+              >
+                <ShieldCheck size={16} />
+                <span>Painel admin</span>
+              </Link>
               <Link
                 href="/usuarios"
                 className={`nav-link ${location === "/usuarios" ? "active" : ""}`}
