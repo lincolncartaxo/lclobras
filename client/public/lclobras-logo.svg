@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="144" viewBox="0 0 640 144" fill="none">
+  <rect x="4" y="4" width="136" height="136" rx="24" fill="#142B40"/>
+  <path d="M33 104V35h17v52h73v17H33Z" fill="#F1F3F5"/>
+  <path d="M50 35h73v17H67v35H50V35Z" fill="#E58A31"/>
+  <path d="M76 69h30M76 81h19" stroke="#142B40" stroke-width="4" stroke-linecap="round"/>
+  <path d="M48 112h65" stroke="#E58A31" stroke-width="5" stroke-linecap="round"/>
+  <text x="170" y="82" fill="#142B40" font-family="Inter, Arial, sans-serif" font-size="58" font-weight="750" letter-spacing="-2">LclObras</text>
+  <text x="174" y="117" fill="#667784" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600" letter-spacing="3.4">GESTÃO INTEGRADA DE OBRAS</text>
+</svg>

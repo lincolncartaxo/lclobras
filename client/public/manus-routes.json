@@ -1,0 +1,7 @@
+{
+  "routes": [
+    { "path": "/", "title": "Painel LclObras" },
+    { "path": "/m/:moduleId", "title": "Módulos operacionais" },
+    { "path": "/usuarios", "title": "Usuários e perfis" }
+  ]
+}
