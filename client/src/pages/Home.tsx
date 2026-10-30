@@ -232,6 +232,78 @@ export default function Home() {
         </section>
       </div>
 
+      <section className="panel work-cash-summary">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">CAIXA POR OBRA</span>
+            <h2>Recebimentos, despesas e resultado</h2>
+          </div>
+          <Link href="/m/fluxo-caixa" className="text-link">
+            Detalhar fluxo <ChevronRight size={15} />
+          </Link>
+        </div>
+        {data?.workFinance.length ? (
+          <div className="data-table-wrap">
+            <table className="data-table work-cash-table">
+              <thead>
+                <tr>
+                  <th>Obra</th>
+                  <th className="num">Recebido</th>
+                  <th className="num">Despesas pagas</th>
+                  <th className="num">Pago pela Central</th>
+                  <th className="num">Caixa líquido</th>
+                  <th className="num">Resultado da obra</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.workFinance.map(work => {
+                  const finished = ["concluido", "encerrado"].includes(
+                    work.status.toLocaleLowerCase("pt-BR")
+                  );
+                  return (
+                    <tr key={work.id}>
+                      <td className="record-primary">
+                        {work.title}
+                        <span className="record-sub">
+                          {work.code || "Sem código"}
+                        </span>
+                      </td>
+                      <td className="num">{money(work.received)}</td>
+                      <td className="num">{money(work.settledCosts)}</td>
+                      <td className="num">{money(work.centralPaidCosts)}</td>
+                      <td
+                        className={`num ${work.cashBalance < 0 ? "negative-balance" : "positive-balance"}`}
+                      >
+                        {money(work.cashBalance)}
+                      </td>
+                      <td
+                        className={`num ${work.profitForecast < 0 ? "negative-balance" : ""}`}
+                      >
+                        {money(work.profitForecast)}
+                        <span className="record-sub">
+                          {finished ? "Lucro final" : "Resultado projetado"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-inline">
+            <Building2 size={17} /> Cadastre uma obra para acompanhar o caixa e
+            o resultado individual.
+          </div>
+        )}
+        <p className="table-footer-note">
+          Caixa líquido = recebimentos baixados − despesas da obra pagas,
+          incluindo as honradas pela Administração Central. Resultado = contrato
+          − custos registrados da obra; despesas gerais do escritório não são
+          rateadas.
+        </p>
+      </section>
+
       <div className="dashboard-grid lower-grid">
         <section className="panel recent-panel">
           <div className="panel-heading">

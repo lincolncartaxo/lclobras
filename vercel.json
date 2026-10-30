@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm build && rm -f dist/public/api/platform/config.js",
+  "outputDirectory": "dist/public",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://lclobras-zu5mpd42.manus.space/api/:path*"
+    },
+    {
+      "source": "/manus-storage/:path*",
+      "destination": "https://lclobras-zu5mpd42.manus.space/manus-storage/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

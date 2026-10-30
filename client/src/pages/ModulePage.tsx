@@ -9,7 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { canWriteModule, type BusinessModuleId } from "@shared/records";
+import {
+  ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY,
+  canWriteModule,
+  type BusinessModuleId,
+} from "@shared/records";
 import { getModule } from "@/modules/definitions";
 import {
   AlertCircle,
@@ -37,6 +41,7 @@ type FormState = Record<string, string>;
 type RecordRow = {
   id: number;
   module: string;
+  systemKey?: string | null;
   code: string | null;
   title: string;
   workId: number | null;
@@ -253,7 +258,15 @@ function RecordsModule({
       title: "",
       code: "",
       workId: "",
-      costCenterId: "",
+      costCenterId:
+        definition.id === "contas-pagar"
+          ? String(
+              centers.find(
+                center =>
+                  center.systemKey === ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY
+              )?.id ?? ""
+            )
+          : "",
       amount: "",
       quantity: "",
       recordDate: "",
@@ -563,7 +576,10 @@ function RecordsModule({
                   const center = centers.find(
                     item => item.id === record.costCenterId
                   );
-                  const canEditRecord = canCreate && !record.sourceModule;
+                  const isSystemCentralCenter =
+                    record.systemKey === ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY;
+                  const canEditRecord =
+                    canCreate && !record.sourceModule && !isSystemCentralCenter;
                   const acquired = Number(
                     record.details?.quantidadeAdquirida ?? 0
                   );
@@ -587,6 +603,11 @@ function RecordsModule({
                       </td>
                       <td className="record-primary">
                         {record.title}
+                        {isSystemCentralCenter && (
+                          <span className="record-sub system-center-note">
+                            Centro sistêmico protegido
+                          </span>
+                        )}
                         {record.quantity != null && (
                           <span className="record-sub">
                             Qtd. {record.quantity}
@@ -685,6 +706,7 @@ function RecordsModule({
                             </button>
                           )}
                           {user?.role === "admin" &&
+                            !isSystemCentralCenter &&
                             !record.sourceModule &&
                             !record.settledAmount && (
                               <button
@@ -861,8 +883,9 @@ function RecordsModule({
                   </select>
                   {filteredCenters.length === 0 && (
                     <small className="field-help">
-                      Cadastre primeiro o centro de custo da obra ou da
-                      Administração.
+                      {form.workId
+                        ? "Cadastre um centro de custo para a obra selecionada."
+                        : "Administração Central é criada automaticamente para despesas gerais."}
                     </small>
                   )}
                 </div>
@@ -1637,6 +1660,11 @@ function SettlementDialog({
     new Date().toISOString().slice(0, 10)
   );
   const [reference, setReference] = useState("");
+  const [paidByCentral, setPaidByCentral] = useState(false);
+  const canMarkAsCentralPaid =
+    record.module === "contas-pagar" &&
+    record.workId != null &&
+    record.costCenterId != null;
   const utils = trpc.useUtils();
   const history = trpc.settlements.list.useQuery(
     { recordId: record.id },
@@ -1650,6 +1678,7 @@ function SettlementDialog({
       ]);
       setAmount("");
       setReference("");
+      setPaidByCentral(false);
       toast.success("Baixa registrada no histórico financeiro.");
     },
     onError: error => toast.error(error.message),
@@ -1668,6 +1697,7 @@ function SettlementDialog({
       amount: amountValue,
       settlementDate,
       reference: reference.trim() || null,
+      paidByCentral: canMarkAsCentralPaid && paidByCentral,
     });
   }
   return (
@@ -1734,6 +1764,22 @@ function SettlementDialog({
               />
             </div>
           </div>
+          {canMarkAsCentralPaid && (
+            <label className="settlement-central-option">
+              <input
+                type="checkbox"
+                checked={paidByCentral}
+                onChange={event => setPaidByCentral(event.target.checked)}
+              />
+              <span>
+                <strong>Pago pela Administração Central</strong>
+                <small>
+                  Registra a cobertura de caixa sem transferir o custo para fora
+                  da obra ou criar reembolso.
+                </small>
+              </span>
+            </label>
+          )}
           <div className="form-note immutable-note">
             <LockKeyhole size={14} />
             <span>
@@ -1771,7 +1817,10 @@ function SettlementDialog({
                   )}
                 </span>
                 <strong>{money(item.amount)}</strong>
-                <small>{item.reference || "Sem referência"}</small>
+                <small>
+                  {item.paidByCentral ? "Administração Central · " : ""}
+                  {item.reference || "Sem referência"}
+                </small>
               </div>
             ))
           ) : (
@@ -1852,7 +1901,7 @@ function CashFlowPage() {
             <span className="eyebrow">FINANCEIRO</span>
             <h1>Fluxo de caixa</h1>
             <p>
-              Planilha contratada, custos, vencimentos, baixas e saldos por
+              Caixa realizado, custos, vencimentos e resultado contratual por
               obra.
             </p>
           </div>
@@ -1907,9 +1956,12 @@ function CashFlowPage() {
                   <th className="num">Planilha</th>
                   <th>Orçamento consumido</th>
                   <th className="num">Custos totais</th>
+                  <th className="num">Pago pela Central</th>
                   <th className="num">A pagar</th>
+                  <th className="num">Recebido</th>
                   <th className="num">A receber</th>
-                  <th className="num">Saldo contrato</th>
+                  <th className="num">Caixa líquido</th>
+                  <th className="num">Resultado da obra</th>
                 </tr>
               </thead>
               <tbody>
@@ -1943,12 +1995,26 @@ function CashFlowPage() {
                           Baixado: {money(work.settledCosts)}
                         </span>
                       </td>
+                      <td className="num">{money(work.centralPaidCosts)}</td>
                       <td className="num">{money(work.openPayables)}</td>
+                      <td className="num">{money(work.received)}</td>
                       <td className="num">{money(work.receivables)}</td>
                       <td
-                        className={`num ${work.contractBalance < 0 ? "negative-balance" : ""}`}
+                        className={`num ${work.cashBalance < 0 ? "negative-balance" : "positive-balance"}`}
                       >
-                        {money(work.contractBalance)}
+                        {money(work.cashBalance)}
+                      </td>
+                      <td
+                        className={`num ${work.profitForecast < 0 ? "negative-balance" : ""}`}
+                      >
+                        {money(work.profitForecast)}
+                        <span className="record-sub">
+                          {["concluido", "encerrado"].includes(
+                            work.status.toLocaleLowerCase("pt-BR")
+                          )
+                            ? "Lucro final"
+                            : "Resultado projetado"}
+                        </span>
                       </td>
                     </tr>
                   );
@@ -1958,10 +2024,11 @@ function CashFlowPage() {
           </div>
         )}
         <p className="table-footer-note">
-          Custos incluem compromissos pagos e em aberto uma única vez. Compras,
-          folha e medições aprovadas geram contas a pagar vinculadas; baixas
-          parciais ficam em histórico separado. Custos do centro de
-          Administração permanecem visíveis no total geral.
+          Custos incluem compromissos pagos e em aberto uma única vez. Caixa =
+          recebimentos baixados − despesas efetivamente pagas, inclusive as
+          honradas pela Administração Central (valor mostrado separadamente,
+          sem duplicar o custo). Resultado = contrato − custos registrados da
+          obra; overhead do escritório não é rateado.
         </p>
       </section>
       <div className="cashflow-sections">

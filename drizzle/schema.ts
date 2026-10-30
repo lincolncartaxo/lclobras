@@ -1,4 +1,5 @@
 import {
+  boolean,
   decimal,
   type AnyMySqlColumn,
   index,
@@ -36,6 +37,7 @@ export const businessRecords = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     module: varchar("module", { length: 48 }).notNull(),
     code: varchar("code", { length: 80 }),
+    systemKey: varchar("systemKey", { length: 80 }),
     title: varchar("title", { length: 240 }).notNull(),
     workId: int("workId"),
     costCenterId: int("costCenterId"),
@@ -65,6 +67,9 @@ export const businessRecords = mysqlTable(
     codeIndex: index("business_records_code_idx").on(table.code),
     orderCodeUnique: uniqueIndex("business_records_order_code_uq").on(
       table.orderCodeNormalized
+    ),
+    systemKeyUnique: uniqueIndex("business_records_system_key_uq").on(
+      table.systemKey
     ),
     supplierContractIndex: index("business_records_supplier_contract_idx").on(
       table.supplierContractId
@@ -122,6 +127,7 @@ export const recordSettlements = mysqlTable(
       mode: "number",
     }).notNull(),
     settlementDate: varchar("settlementDate", { length: 10 }).notNull(),
+    paidByCentral: boolean("paidByCentral").default(false).notNull(),
     reference: varchar("reference", { length: 240 }),
     createdBy: int("createdBy").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),

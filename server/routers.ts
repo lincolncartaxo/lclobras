@@ -1,5 +1,11 @@
 import { COOKIE_NAME } from "@shared/const";
-import { BUSINESS_MODULE_IDS, type BusinessModuleId } from "@shared/records";
+import {
+  ADMIN_CENTRAL_COST_CENTER_CODE,
+  ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY,
+  ADMIN_CENTRAL_COST_CENTER_TITLE,
+  BUSINESS_MODULE_IDS,
+  type BusinessModuleId,
+} from "@shared/records";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { BusinessRecord } from "../drizzle/schema";
@@ -13,6 +19,7 @@ import {
 } from "./_core/trpc";
 import {
   deleteBusinessRecord,
+  ensureAdministrationCentralCostCenter,
   getBusinessRecord,
   getAdminDashboardCounts,
   getRecordAttachment,
@@ -31,6 +38,7 @@ import {
   normalizeStockMaterial,
   normalizeStockUnit,
   SettlementExceedsBalanceError,
+  SettlementPayerValidationError,
   SettledAmountExceededError,
   setUserAccountRoleSafely,
   setUserOperationalRole,
@@ -38,6 +46,7 @@ import {
   updateStockMovement,
   updateBusinessRecord,
 } from "./db";
+import { calculateWorkFinanceMetrics } from "./finance";
 import { storageGetSignedUrl, storagePut } from "./storage";
 
 const moduleSchema = z.enum(BUSINESS_MODULE_IDS);
@@ -111,6 +120,14 @@ const supplierReferenceModules = new Set<BusinessModuleId>([
   "contratos-fornecedor",
   "medicoes",
 ]);
+
+function isCentralAdministrationIdentity(title: string, code?: string | null) {
+  const normalize = (value: string) => value.trim().toLocaleLowerCase("pt-BR");
+  return (
+    normalize(title) === normalize(ADMIN_CENTRAL_COST_CENTER_TITLE) ||
+    normalize(String(code ?? "")) === normalize(ADMIN_CENTRAL_COST_CENTER_CODE)
+  );
+}
 
 function fail(
   code:
@@ -706,13 +723,23 @@ export const appRouter = router({
   records: router({
     list: protectedProcedure
       .input(z.object({ module: moduleSchema.optional() }).optional())
-      .query(async ({ input }) =>
-        enrichRecords(await listBusinessRecords(input?.module))
-      ),
+      .query(async ({ ctx, input }) => {
+        if (input?.module === "centros-custo")
+          await ensureAdministrationCentralCostCenter(ctx.user.id);
+        return enrichRecords(await listBusinessRecords(input?.module));
+      }),
     create: protectedProcedure
       .input(recordInput)
       .mutation(async ({ ctx, input }) => {
         assertWriter(input.module, ctx.user);
+        if (
+          input.module === "centros-custo" &&
+          isCentralAdministrationIdentity(input.title, input.code)
+        )
+          fail(
+            "CONFLICT",
+            "Administração Central é um centro sistêmico criado automaticamente e não pode ser duplicado."
+          );
         if (input.module === "pedidos") await ensureUniqueOrderCode(input.code);
         if (input.module === "cotacoes" && !input.code?.trim())
           fail(
@@ -794,6 +821,31 @@ export const appRouter = router({
         const existing = await requireRecord(input.id);
         if (existing.module !== input.module)
           fail("NOT_FOUND", "Registro não encontrado.");
+        if (existing.systemKey === ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY) {
+          const centerType = String(input.details.tipo ?? "")
+            .trim()
+            .toLocaleLowerCase("pt-BR");
+          if (
+            input.title !== ADMIN_CENTRAL_COST_CENTER_TITLE ||
+            (input.code ?? null) !== existing.code ||
+            input.workId != null ||
+            input.costCenterId != null ||
+            centerType !== "administração" ||
+            input.status === "cancelado"
+          )
+            fail(
+              "PRECONDITION_FAILED",
+              "O centro sistêmico Administração Central não pode ser renomeado, vinculado a uma obra ou cancelado."
+            );
+        } else if (
+          input.module === "centros-custo" &&
+          isCentralAdministrationIdentity(input.title, input.code)
+        ) {
+          fail(
+            "CONFLICT",
+            "Administração Central é um centro sistêmico criado automaticamente e não pode ser duplicado."
+          );
+        }
         if (existing.module === "contas-pagar" && existing.sourceModule)
           fail(
             "PRECONDITION_FAILED",
@@ -1065,6 +1117,11 @@ export const appRouter = router({
             "FORBIDDEN",
             "Somente um administrador pode excluir registros operacionais."
           );
+        if (existing.systemKey === ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY)
+          fail(
+            "PRECONDITION_FAILED",
+            "O centro sistêmico Administração Central não pode ser excluído."
+          );
         if (stockMovementModules.has(existing.module as BusinessModuleId))
           fail(
             "PRECONDITION_FAILED",
@@ -1229,6 +1286,7 @@ export const appRouter = router({
             ),
           settlementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           reference: z.string().trim().max(240).optional().nullable(),
+          paidByCentral: z.boolean().default(false),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1241,17 +1299,30 @@ export const appRouter = router({
             "BAD_REQUEST",
             "Baixas só podem ser lançadas em contas a pagar/receber."
           );
+        if (
+          input.paidByCentral &&
+          (record.module !== "contas-pagar" ||
+            record.workId == null ||
+            record.costCenterId == null)
+        )
+          fail(
+            "BAD_REQUEST",
+            "Somente despesas a pagar vinculadas a uma obra podem ser marcadas como pagas pela Administração Central."
+          );
         try {
           return await insertRecordSettlementSafely({
             recordId: input.recordId,
             amount: input.amount,
             settlementDate: input.settlementDate,
             reference: input.reference ?? null,
+            paidByCentral: input.paidByCentral,
             createdBy: ctx.user.id,
           });
         } catch (error) {
           if (error instanceof SettlementExceedsBalanceError)
             fail("BAD_REQUEST", error.message);
+          if (error instanceof SettlementPayerValidationError)
+            fail("PRECONDITION_FAILED", error.message);
           throw error;
         }
       }),
@@ -1443,7 +1514,8 @@ export const appRouter = router({
     }),
   }),
   dashboard: router({
-    summary: protectedProcedure.query(async () => {
+    summary: protectedProcedure.query(async ({ ctx }) => {
+      await ensureAdministrationCentralCostCenter(ctx.user.id);
       const records = await listBusinessRecords();
       const settlements = await listAllRecordSettlements();
       const settledByRecord = new Map<number, number>();
@@ -1510,6 +1582,12 @@ export const appRouter = router({
         );
         const clientContract = Number(work.amount ?? 0);
         const workCosts = sum(workPayables);
+        const metrics = calculateWorkFinanceMetrics(
+          clientContract,
+          work.id,
+          records,
+          settlements
+        );
         return {
           id: work.id,
           title: work.title,
@@ -1517,7 +1595,12 @@ export const appRouter = router({
           contracted: clientContract,
           budgeted: sum(workBudget),
           costs: workCosts,
-          settledCosts: settled(workPayables),
+          settledCosts: metrics.settledCosts,
+          received: metrics.received,
+          cashBalance: metrics.cashBalance,
+          centralPaidCosts: metrics.centralPaidCosts,
+          profitForecast: metrics.profit,
+          status: work.status,
           openPayables: open(workPayables),
           receivables: open(workReceivables),
           contractBalance: clientContract - workCosts,
@@ -1613,7 +1696,10 @@ export const appRouter = router({
       }),
   }),
   admin: router({
-    overview: adminProcedure.query(() => getAdminDashboardCounts()),
+    overview: adminProcedure.query(async ({ ctx }) => {
+      await ensureAdministrationCentralCostCenter(ctx.user.id);
+      return getAdminDashboardCounts();
+    }),
   }),
 });
 

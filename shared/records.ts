@@ -1,3 +1,8 @@
+export const ADMIN_CENTRAL_COST_CENTER_CODE = "ADM-CENTRAL";
+export const ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY =
+  "lclobras:administracao-central";
+export const ADMIN_CENTRAL_COST_CENTER_TITLE = "Administração Central";
+
 export const BUSINESS_MODULE_IDS = [
   "obras",
   "clientes",

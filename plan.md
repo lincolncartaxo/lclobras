@@ -10,7 +10,7 @@ O repositório de destino pedido é `https://github.com/lincolncartaxo/lclobras`
 
 - **Frontend:** React e TypeScript, Vite, Wouter para rotas, componentes shadcn/ui e lucide-react; páginas em `client/src/pages`, shell autenticado em `client/src/components` e definições de formulário/navegação em `client/src/modules`.
 - **Servidor:** Express e tRPC, com procedures autenticadas em `server/routers.ts`; regras de perfil, autorização, validação de relações, estoque, finanças e anexos são aplicadas no servidor, além da interface.
-- **Dados:** Drizzle/MySQL no banco gerenciado do projeto. `drizzle/schema.ts` descreve usuários, registros operacionais, referências de origem, anexos e baixas; migrações versionadas em `drizzle/`. `server/db.ts` concentra operações persistentes e `shared/records.ts` define os tipos e módulos compartilhados.
+- **Dados:** Drizzle/MySQL no banco gerenciado do projeto. `drizzle/schema.ts` descreve usuários, registros operacionais, referências de origem, anexos e baixas; migrações versionadas em `drizzle/`. `server/db.ts` concentra operações persistentes e `shared/records.ts` define os tipos e módulos compartilhados. O centro sistêmico Administração Central será identificado por chave única; baixas terão um marcador aditivo para pagamentos honrados pela Central.
 - **Arquivos:** armazenamento durável gerenciado do projeto. O banco mantém metadados privados e vínculo com o registro; download passa por procedure autenticada e URL temporária. O servidor valida perfil, tamanho e formato do arquivo.
 - **Servidor local e publicação:** o processo full-stack usa a porta configurada pelo WebDev e disponibiliza `/api/health`; o manifesto `client/public/manus-routes.json` declara as rotas de página. A identidade da plataforma é configurada por `app.config.ts`.
 - **Stack e dependências:** preservar o starter WebDev já inicializado e suas dependências existentes; reutilizar a organização visual de LclPO, sem adicionar outro runtime ou bibliotecas desnecessárias.
@@ -19,18 +19,18 @@ O repositório de destino pedido é `https://github.com/lincolncartaxo/lclobras`
 
 Os registros de negócio usam estrutura compartilhada, com `module`, título/código, obra, centro de custo, quantidade, valor, data, estado, responsável e detalhes específicos. IDs de obra, centro de custo, usuário e origem são validados no servidor. Cliente, fornecedor e colaborador são selecionados de seus cadastros-mestre; nomes vinculados a contratos, recebíveis, suprimentos ou folha não podem ser renomeados/excluídos enquanto houver referências.
 
-- Obras relacionam um cliente cadastrado, número de contrato, valor contratado, vigência e documentos. A planilha contratada é lançada por itens/atividades vinculados à obra e a centros de custo; o centro de Administração é separado dos centros de obra.
+- Obras relacionam um cliente cadastrado, número de contrato, valor contratado, vigência e documentos. A planilha contratada é lançada por itens/atividades vinculados à obra e a centros de custo; o centro sistêmico Administração Central é separado dos centros de obra e usado para despesas gerais do escritório.
 - Pedidos conservam códigos únicos que podem ser associados às compras; recebimentos podem referenciar pedido/compra da mesma obra e centro. Cotações mantêm fornecedor cadastrado, preço, prazo, condição comercial e validade para equalização. Contratos de terceiros e medições permanecem ligados ao fornecedor e à obra.
 - Perfis **almoxarife** e **encarregado** são atribuídos por administrador. Pedidos e recebimentos/entradas só podem ser criados/editados pelo almoxarife; retiradas/saídas somente pelo encarregado. Cada retirada identifica o encarregado responsável. Estoque é calculado pelas entradas menos retiradas ativas e a retirada não pode superar o saldo disponível da obra, material, unidade e centro de custo; movimentos cancelados são excluídos da posição.
 - Consumo de material é associado à obra, centro de custo, atividade, quantidade adquirida, quantidade planejada e quantidade consumida, exibindo desvios.
 - Folha seleciona colaborador cadastrado, calcula o líquido como bruto menos descontos e gera ou atualiza uma única conta a pagar vinculada ao registro de origem. Compras e medições aprovadas também geram ou atualizam um único lançamento de contas a pagar, com referência única. Medições em análise não geram obrigação.
-- Contas a pagar e receber mantêm o valor total e vencimento. Baixas parciais/totais são registros separados, append-only, vinculados à conta e não podem ser editados/apagados pelo fluxo genérico. O saldo aberto é total menos baixas; não são criadas contas adicionais para parcelas baixadas, evitando dupla contagem. Recebíveis devem apontar para o cliente do contrato da obra.
-- Fluxo financeiro por obra compara contrato do cliente, planilha prevista, custos comprometidos, baixas, valores a pagar/a receber em aberto e saldo contratual. Custos pagos continuam compondo o custo total uma só vez. Gastos do centro de Administração aparecem no total consolidado e não são atribuídos artificialmente a uma obra.
+- Contas a pagar e receber mantêm o valor total e vencimento. Baixas parciais/totais são registros separados, append-only, vinculados à conta e não podem ser editados/apagados pelo fluxo genérico. O saldo aberto é total menos baixas; não são criadas contas adicionais para parcelas baixadas, evitando dupla contagem. Recebíveis devem apontar para o cliente do contrato da obra. Uma baixa de conta a pagar vinculada à obra pode ser marcada como paga pela Administração Central; o custo permanece na obra e não gera saldo de reembolso.
+- Fluxo financeiro por obra compara contrato do cliente, planilha prevista, custos comprometidos, baixas, valores a pagar/a receber em aberto, caixa realizado e resultado contratual. O caixa realizado é recebimentos efetivamente baixados menos despesas efetivamente pagas, incluindo as honradas pela Administração Central; cada despesa conta uma vez. O resultado projetado/final compara o valor contratado aos custos registrados da obra. Despesas gerais de manutenção do escritório permanecem na Administração Central e não são rateadas às obras.
 - Anexos podem ser vinculados aos registros, incluindo contratos, assinaturas de recebimento de material e notas fiscais emitidas ao cliente. A aplicação exige autenticação para emitir links temporários de download.
 
 ## Estrutura principal do projeto
 
-- `client/src/pages/Home.tsx`: painel executivo e indicadores por obra.
+- `client/src/pages/Home.tsx`: painel executivo, resumo do caixa e resultado de cada obra.
 - `client/src/pages/ModulePage.tsx`: cadastros/listagens operacionais, relatórios de fluxo, anexos e baixas.
 - `client/src/pages/UsersPage.tsx`: atribuição administrativa dos perfis operacionais.
 - `client/src/pages/AdminDashboardPage.tsx`: visão geral e atalhos centrais para operações administrativas.
@@ -39,7 +39,7 @@ Os registros de negócio usam estrutura compartilhada, com `module`, título/có
 - `client/public/manus-routes.json`: rotas públicas de página reconhecidas pelo WebDev.
 - `server/routers.ts`: procedures tRPC autenticadas, regras e validações de domínio.
 - `server/db.ts` e `server/storage.ts`: persistência e integração do armazenamento gerenciado.
-- `drizzle/schema.ts`, `drizzle/relations.ts` e `drizzle/*.sql`: modelo relacional e migrações aditivas.
+- `drizzle/schema.ts`, `drizzle/relations.ts` e `drizzle/*.sql`: modelo relacional e migrações aditivas, incluindo a identidade única da Administração Central e a origem central das baixas.
 - `shared/records.ts`: contratos de tipos e permissões compartilhados entre cliente e servidor.
 - `plan.md` e `TODO.md`: decisões aprovadas e resultados/critério de aceite rastreáveis.
 
@@ -71,3 +71,17 @@ O `role=admin` é o papel de superusuário da aplicação, separado de `operatio
 A administração de usuários listará contas que já autenticaram pelo Manus e permitirá ajustar separadamente o papel da aplicação (`user`/`admin`) e o perfil operacional (`administrativo`/`almoxarife`/`encarregado`). O servidor deve impedir a remoção do último administrador e qualquer autodemissão. A conta proprietária do projeto permanece como admin, coerente com a promoção automática no login. Contas não são inventadas manualmente: sua identidade vem do OAuth Manus. Baixas financeiras permanecem append-only e movimentos/documentos preservam a trilha de auditoria; as ações administrativas não podem apagar histórico financeiro ou referências protegidas.
 
 A implementação reutilizará `adminProcedure`, `canWriteModule`, os procedimentos de CRUD por módulo e o banco atual, sem nova tabela ou migração. `client/src/pages/AdminDashboardPage.tsx` será o índice central, `UsersPage.tsx` receberá controles para ambos os papéis, `DashboardLayout.tsx` exibirá a entrada apenas ao admin, e `App.tsx`/`client/public/manus-routes.json` declararão a rota. `server/routers.ts` fornecerá o resumo agregado protegido e a alteração de papel; `server/db.ts` executará mudanças de papel com bloqueio transacional e salvaguardas para evitar lockout.
+
+## Extensão aprovada: Administração Central e desempenho financeiro por obra
+
+`Administração Central` será um centro de custo sistêmico e único, sem vínculo a obra, disponível automaticamente para manutenção do escritório e protegido contra duplicação, renomeação ou exclusão pelo CRUD comum. As despesas próprias do escritório permanecem nesse centro e não são rateadas às obras.
+
+Quando a Central honrar uma despesa de uma obra por atraso de recebimento, a conta a pagar continua vinculada à obra e ao centro de custo da obra; a baixa imutável registra `paga pela Administração Central`, sem criar dívida ou saldo de reembolso. O desembolso é contado uma vez como despesa da obra.
+
+O caixa realizado por obra é o total de recebimentos de clientes efetivamente baixados menos o total de despesas da obra efetivamente pagas, inclusive as pagas pela Central. O painel inicial e o fluxo de caixa mostram o saldo e o total coberto pela Central para cada obra. O resultado contratual é o valor do contrato menos os custos registrados da obra (contas a pagar pagas e em aberto); enquanto a obra não estiver encerrada, é uma projeção e, após todos os custos serem registrados no encerramento, representa o lucro final. O overhead do escritório não entra nesse cálculo.
+
+As alterações de banco são aditivas: `business_records.systemKey` identifica o centro sistêmico e `record_settlements.paidByCentral` registra a fonte da baixa, com valor padrão `false` para o histórico existente.
+
+## Publicação via Vercel
+
+O projeto Vercel deve usar a raiz do repositório, executar `pnpm build` e servir `dist/public`, nunca `dist/` (que também contém `dist/index.js`, o bundle Node do servidor). O `vercel.json` fixa `outputDirectory: dist/public` e remove do artefato o `api/platform/config.js` gerado vazio; assim, a mesma rota é atendida pelo backend Manus. As regras encaminham `/api/:path*` e `/manus-storage/:path*` para `https://lclobras-zu5mpd42.manus.space` e aplicam fallback SPA para `index.html`. Assim, a interface e seus deep links ficam no CDN do Vercel, enquanto autenticação/API, banco e armazenamento continuam no backend Manus. A configuração segue as orientações oficiais de [Vite no Vercel](https://vercel.com/docs/frameworks/frontend/vite), [diretório de saída do build](https://vercel.com/docs/builds/configure-a-build) e [rewrites externos](https://vercel.com/docs/routing/rewrites).

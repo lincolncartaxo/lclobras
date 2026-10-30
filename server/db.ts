@@ -15,6 +15,11 @@ import {
   type User,
   users,
 } from "../drizzle/schema";
+import {
+  ADMIN_CENTRAL_COST_CENTER_CODE,
+  ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY,
+  ADMIN_CENTRAL_COST_CENTER_TITLE,
+} from "../shared/records";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -103,6 +108,104 @@ export async function getBusinessRecord(id: number) {
     .where(eq(businessRecords.id, id))
     .limit(1);
   return result[0];
+}
+
+export async function ensureAdministrationCentralCostCenter(
+  createdBy: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const lockKey = createHash("sha256")
+    .update(ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY)
+    .digest("hex");
+
+  return db.transaction(async tx => {
+    await tx
+      .insert(stockOperationLocks)
+      .values({ lockKey })
+      .onDuplicateKeyUpdate({ set: { lockKey } });
+    await tx
+      .select({ lockKey: stockOperationLocks.lockKey })
+      .from(stockOperationLocks)
+      .where(eq(stockOperationLocks.lockKey, lockKey))
+      .for("update");
+
+    const systemRows = await tx
+      .select()
+      .from(businessRecords)
+      .where(eq(businessRecords.systemKey, ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY))
+      .limit(1)
+      .for("update");
+    if (systemRows[0]) {
+      if (systemRows[0].status === "cancelado")
+        await tx
+          .update(businessRecords)
+          .set({ status: "ativo" })
+          .where(eq(businessRecords.id, systemRows[0].id));
+      return systemRows[0].id;
+    }
+
+    const centers = await tx
+      .select()
+      .from(businessRecords)
+      .where(eq(businessRecords.module, "centros-custo"))
+      .for("update");
+    const existing = centers.find(record => {
+      if (
+        record.workId != null ||
+        record.title.trim().toLocaleLowerCase("pt-BR") !==
+          ADMIN_CENTRAL_COST_CENTER_TITLE.toLocaleLowerCase("pt-BR")
+      )
+        return false;
+      try {
+        const details = record.details ? JSON.parse(record.details) : {};
+        return (
+          String(details.tipo ?? "")
+            .trim()
+            .toLocaleLowerCase("pt-BR") === "administração"
+        );
+      } catch {
+        return false;
+      }
+    });
+
+    if (existing) {
+      await tx
+        .update(businessRecords)
+        .set({
+          systemKey: ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY,
+          code: existing.code || ADMIN_CENTRAL_COST_CENTER_CODE,
+          status: existing.status === "cancelado" ? "ativo" : existing.status,
+        })
+        .where(eq(businessRecords.id, existing.id));
+      return existing.id;
+    }
+
+    const result = await tx.insert(businessRecords).values({
+      module: "centros-custo",
+      code: ADMIN_CENTRAL_COST_CENTER_CODE,
+      systemKey: ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY,
+      title: ADMIN_CENTRAL_COST_CENTER_TITLE,
+      workId: null,
+      costCenterId: null,
+      supplierContractId: null,
+      amount: null,
+      quantity: null,
+      recordDate: null,
+      status: "ativo",
+      responsible: null,
+      details: JSON.stringify({
+        tipo: "Administração",
+        finalidade: "Manutenção do escritório da empresa",
+      }),
+      sourceModule: null,
+      sourceRecordId: null,
+      createdBy,
+    });
+    return Number(
+      (result as unknown as [{ insertId: number }])[0]?.insertId ?? 0
+    );
+  });
 }
 
 export async function insertBusinessRecord(record: InsertBusinessRecord) {
@@ -574,6 +677,14 @@ export class SettlementExceedsBalanceError extends Error {
   }
 }
 
+export class SettlementPayerValidationError extends Error {
+  constructor() {
+    super(
+      "Somente despesas a pagar vinculadas a uma obra podem ser marcadas como pagas pela Administração Central."
+    );
+  }
+}
+
 export async function insertRecordSettlementSafely(
   settlement: InsertRecordSettlement
 ) {
@@ -591,6 +702,13 @@ export async function insertRecordSettlementSafely(
       (account.module !== "contas-pagar" && account.module !== "contas-receber")
     )
       throw new Error("Financial record not found");
+    if (
+      settlement.paidByCentral &&
+      (account.module !== "contas-pagar" ||
+        account.workId == null ||
+        account.costCenterId == null)
+    )
+      throw new SettlementPayerValidationError();
     const settlements = await tx
       .select({ amount: recordSettlements.amount })
       .from(recordSettlements)

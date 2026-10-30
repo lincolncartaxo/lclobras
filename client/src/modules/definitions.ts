@@ -104,7 +104,8 @@ export const MODULES: ModuleDefinition[] = [
     title: "Centros de custo",
     shortTitle: "Centros de custo",
     group: "Obras",
-    description: "Separe e acompanhe custos por obra ou pela administração.",
+    description:
+      "Use a Administração Central para despesas do escritório e centros próprios para cada obra.",
     icon: Wallet,
     showWork: true,
     fields: [

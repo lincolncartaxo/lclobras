@@ -14,6 +14,8 @@
 ## Obras, contratos, orçamento e centros de custo
 - [x] Disponibilizar cadastro de clientes e associar cada obra/contrato a um cliente cadastrado.
 - [x] Disponibilizar centros de custo por obra, associados a um contrato com o cliente a ser cadastrado, e um centro de custo de administração.
+- [x] Garantir a existência automática de um centro de custo único denominado **Administração Central**, sem vínculo a obra, destinado à manutenção do escritório da empresa; proteger sua identidade para impedir duplicação, renomeação ou exclusão pelo CRUD comum.
+- [x] Manter despesas gerais do escritório no centro Administração Central e não rateá-las automaticamente entre as obras.
 - [x] Disponibilizar uma planilha contratada/orçamento com itens previstos vinculados à obra, à atividade e ao centro de custo, para comparação com os custos realizados.
 - [x] Reforçar a compatibilidade entre obra e centro de custo: custos de obra devem apontar para centro daquela obra; custos administrativos devem apontar para centro de administração, com validação no servidor.
 - [x] Permitir armazenar arquivos vinculados aos respectivos registros, como contratos, assinatura de recebimento de material e notas fiscais emitidas para cliente; permitir consultar e abrir/baixar os anexos com controle de acesso.
@@ -40,6 +42,9 @@
 - [x] Disponibilizar controle de contas a receber e contas a pagar.
 - [x] Relacionar o fluxo financeiro à obra, registrar vencimentos, baixas totais e parciais e exibir valores em aberto; baixas permanecem vinculadas à conta original, e os compromissos pagos não podem ser contabilizados duas vezes.
 - [x] Não permitir apagar ou reverter uma baixa por edição genérica da conta; validar que o total baixado não ultrapasse o valor da conta e calcular o saldo em aberto como total menos baixas.
+- [x] Quando houver atraso de recebimento na obra, permitir que a baixa de uma conta a pagar da obra registre que a despesa foi honrada pela Administração Central; a conta continua vinculada à obra e ao centro de custo da obra, não cria saldo de reembolso e o custo é contado uma única vez.
+- [x] Calcular e exibir por obra o caixa realizado como recebimentos de clientes efetivamente baixados menos despesas da obra efetivamente pagas, incluindo despesas pagas pela Administração Central; mostrar separadamente o valor coberto pela Central e não incluir overhead do escritório não rateado.
+- [x] Exibir na tela inicial e no fluxo de caixa o caixa de cada obra e o resultado contratual: valor do contrato menos custos da obra registrados (contas a pagar pagas e em aberto); antes do encerramento apresentar como projeção e, depois de todos os custos registrados no encerramento, como lucro final.
 
 ## Planejamento e cronograma
 - [x] Disponibilizar controle do cronograma de obra.
@@ -47,3 +52,6 @@
 ## Repositório e entrega
 - [x] Criar/atualizar o repositório `https://github.com/lincolncartaxo/lclobras` com o código baseado no `https://github.com/lincolncartaxo/lclpo`; publicar o código na branch principal sem reescrever ou forçar o histórico remoto (commit inicial `a924ee8`).
 - [x] Enviar as mudanças do painel administrativo à branch `main` do repositório `https://github.com/lincolncartaxo/lclobras` e registrar o checkpoint do projeto sem force-push (commit `807f6c9`).
+
+## Publicação via Vercel
+- [ ] Fazer a raiz de `https://lclobras.vercel.app/` servir o `index.html` e os assets do build `dist/public`, encaminhar `/api/*` e `/manus-storage/*` ao backend Manus já publicado e permitir deep links da SPA, sem expor o bundle do servidor como página inicial.
