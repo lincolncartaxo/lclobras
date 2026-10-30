@@ -43,6 +43,13 @@
       "when": 1793342797611,
       "tag": "0005_living_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1793345000000,
+      "tag": "0006_local_email_auth",
+      "breakpoints": true
     }
   ]
 }

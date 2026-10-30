@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { MODULES, NAV_GROUPS } from "@/modules/definitions";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
+import { trpc } from "@/lib/trpc";
 import {
   Building2,
   ChevronRight,
@@ -12,7 +13,7 @@ import {
   ShieldCheck,
   TrendingUp,
 } from "lucide-react";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "./ui/button";
 
@@ -29,6 +30,23 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { loading, user, logout } = useAuth();
+  const utils = trpc.useUtils();
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authName, setAuthName] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const loginMutation = trpc.auth.login.useMutation({
+    onSuccess: async () => {
+      setAuthPassword("");
+      await utils.auth.me.invalidate();
+    },
+  });
+  const registerMutation = trpc.auth.register.useMutation({
+    onSuccess: async () => {
+      setAuthPassword("");
+      await utils.auth.me.invalidate();
+    },
+  });
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -46,20 +64,81 @@ export default function DashboardLayout({
     );
   }
   if (!user) {
+    const authMutation = authMode === "login" ? loginMutation : registerMutation;
+    const authError = authMutation.error?.message;
+    const submitAuth = (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (authMode === "login") {
+        loginMutation.mutate({ email: authEmail, password: authPassword });
+      } else {
+        registerMutation.mutate({
+          name: authName,
+          email: authEmail,
+          password: authPassword,
+        });
+      }
+    };
     return (
       <main className="login-screen">
         <section className="login-card">
           <BrandMark />
           <span className="eyebrow">GESTÃO INTEGRADA DE OBRAS</span>
           <h1>Seu canteiro, contrato e caixa em uma só visão.</h1>
-          <p>Acesse o painel operacional do LclObras com sua conta Manus.</p>
-          <Button
-            className="login-button"
-            size="lg"
-            onClick={() => startLogin()}
+          <p>Acesse o painel operacional do LclObras com uma conta própria.</p>
+          <form className="login-form" onSubmit={submitAuth}>
+            {authMode === "register" && (
+              <input
+                className="form-control"
+                placeholder="Nome completo"
+                value={authName}
+                onChange={event => setAuthName(event.target.value)}
+                autoComplete="name"
+                required
+              />
+            )}
+            <input
+              className="form-control"
+              type="email"
+              placeholder="E-mail"
+              value={authEmail}
+              onChange={event => setAuthEmail(event.target.value)}
+              autoComplete="email"
+              required
+            />
+            <input
+              className="form-control"
+              type="password"
+              placeholder="Senha (mínimo de 8 caracteres)"
+              value={authPassword}
+              onChange={event => setAuthPassword(event.target.value)}
+              autoComplete={authMode === "login" ? "current-password" : "new-password"}
+              minLength={8}
+              required
+            />
+            {authError && <span className="login-error">{authError}</span>}
+            <Button className="login-button" size="lg" type="submit" disabled={authMutation.isPending}>
+              {authMutation.isPending
+                ? "Aguarde…"
+                : authMode === "login"
+                  ? "Entrar"
+                  : "Criar conta"}
+              <ChevronRight className="size-4" />
+            </Button>
+          </form>
+          <button
+            className="login-switch"
+            type="button"
+            onClick={() => {
+              setAuthMode(authMode === "login" ? "register" : "login");
+              loginMutation.reset();
+              registerMutation.reset();
+            }}
           >
-            Entrar com Manus <ChevronRight className="size-4" />
-          </Button>
+            {authMode === "login" ? "Ainda não tenho uma conta" : "Já tenho uma conta"}
+          </button>
+          <button className="manus-login-button" type="button" onClick={() => startLogin()}>
+            Entrar com Manus
+          </button>
           <span className="login-footnote">
             Acesso protegido · Registros salvos no banco da empresa
           </span>

@@ -18,11 +18,13 @@ import {
   router,
 } from "./_core/trpc";
 import {
+  createLocalUser,
   deleteBusinessRecord,
   ensureAdministrationCentralCostCenter,
   getBusinessRecord,
   getAdminDashboardCounts,
   getRecordAttachment,
+  getUserByEmail,
   insertBusinessRecord,
   insertStockMovement,
   insertRecordAttachment,
@@ -41,11 +43,16 @@ import {
   SettlementPayerValidationError,
   SettledAmountExceededError,
   setUserAccountRoleSafely,
+  setUserPassword,
   setUserOperationalRole,
+  upsertUser,
   updateFinancialRecordSafely,
   updateStockMovement,
   updateBusinessRecord,
 } from "./db";
+import { ENV } from "./_core/env";
+import { hashPassword, normalizeEmail, verifyPassword } from "./_core/localAuth";
+import { sdk } from "./_core/sdk";
 import { calculateWorkFinanceMetrics } from "./finance";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import {
@@ -731,6 +738,82 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    register: publicProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2).max(160),
+          email: z.string().trim().email().max(320),
+          password: z.string().min(8).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const email = normalizeEmail(input.email);
+        if (await getUserByEmail(email))
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Já existe uma conta com este e-mail. Use o login ou o acesso Manus para definir uma senha.",
+          });
+        const credentials = await hashPassword(input.password);
+        const user = await createLocalUser({
+          name: input.name,
+          email,
+          passwordHash: credentials.hash,
+          passwordSalt: credentials.salt,
+          role: email === ENV.ownerEmail ? "admin" : "user",
+        });
+        if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name ?? input.name,
+        });
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...getSessionCookieOptions(ctx.req),
+          maxAge: 1000 * 60 * 60 * 24 * 365,
+        });
+        return user;
+      }),
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().trim().email().max(320),
+          password: z.string().min(1).max(128),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = await getUserByEmail(normalizeEmail(input.email));
+        if (!user?.passwordHash || !user.passwordSalt) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "E-mail ou senha inválidos.",
+          });
+        }
+        const valid = await verifyPassword(
+          input.password,
+          user.passwordHash,
+          user.passwordSalt
+        );
+        if (!valid)
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "E-mail ou senha inválidos.",
+          });
+        await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name ?? "",
+        });
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...getSessionCookieOptions(ctx.req),
+          maxAge: 1000 * 60 * 60 * 24 * 365,
+        });
+        return user;
+      }),
+    setPassword: protectedProcedure
+      .input(z.object({ password: z.string().min(8).max(128) }))
+      .mutation(async ({ ctx, input }) => {
+        const credentials = await hashPassword(input.password);
+        await setUserPassword(ctx.user.id, credentials.hash, credentials.salt);
+        return { success: true } as const;
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

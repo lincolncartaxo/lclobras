@@ -23,6 +23,7 @@ import {
   ADMIN_CENTRAL_COST_CENTER_TITLE,
 } from "../shared/records";
 import { ENV } from "./_core/env";
+import { nanoid } from "nanoid";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -84,6 +85,53 @@ export async function getUserByOpenId(openId: string) {
     .where(eq(users.openId, openId))
     .limit(1);
   return result[0];
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  return result[0];
+}
+
+export async function createLocalUser(input: {
+  name: string;
+  email: string;
+  passwordHash: string;
+  passwordSalt: string;
+  role?: "user" | "admin";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const openId = `local_${nanoid(32)}`;
+  await db.insert(users).values({
+    openId,
+    name: input.name,
+    email: input.email,
+    loginMethod: "email",
+    passwordHash: input.passwordHash,
+    passwordSalt: input.passwordSalt,
+    role: input.role ?? "user",
+    lastSignedIn: new Date(),
+  });
+  return getUserByOpenId(openId);
+}
+
+export async function setUserPassword(
+  id: number,
+  passwordHash: string,
+  passwordSalt: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db
+    .update(users)
+    .set({ passwordHash, passwordSalt, loginMethod: "email" })
+    .where(eq(users.id, id));
 }
 
 export async function listBusinessRecords(module?: string) {
