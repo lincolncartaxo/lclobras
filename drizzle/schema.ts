@@ -17,9 +17,18 @@ export const users = mysqlTable("users", {
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  normalizedEmail: varchar("normalizedEmail", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   passwordHash: varchar("passwordHash", { length: 128 }),
   passwordSalt: varchar("passwordSalt", { length: 64 }),
+  localAccountStatus: mysqlEnum("localAccountStatus", [
+    "pending",
+    "approved",
+    "rejected",
+  ])
+    .default("approved")
+    .notNull(),
+  sessionVersion: int("sessionVersion").default(0).notNull(),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   operationalRole: mysqlEnum("operationalRole", [
     "administrativo",
@@ -31,7 +40,11 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, table => ({
+  normalizedEmailUnique: uniqueIndex("users_normalized_email_uq").on(
+    table.normalizedEmail
+  ),
+}));
 
 export const businessRecords = mysqlTable(
   "business_records",

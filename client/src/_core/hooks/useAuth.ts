@@ -51,10 +51,17 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
+    const safeUserInfo = meQuery.data
+      ? Object.fromEntries(
+          Object.entries(meQuery.data).filter(
+            ([key]) =>
+              key !== "passwordHash" &&
+              key !== "passwordSalt" &&
+              key !== "normalizedEmail"
+          )
+        )
+      : null;
+    localStorage.setItem("manus-runtime-user-info", JSON.stringify(safeUserInfo));
     return {
       user: meQuery.data ?? null,
       loading: meQuery.isLoading || logoutMutation.isPending,

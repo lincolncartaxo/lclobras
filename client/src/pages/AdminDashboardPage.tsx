@@ -153,8 +153,16 @@ export default function AdminDashboardPage() {
           <h2>Contas e perfis</h2>
           <p>
             Ajuste separadamente o papel de superusuário e o perfil operacional
-            dos usuários que já entraram com autenticação Manus.
+            das contas. Cadastros por e-mail aguardam aprovação nesta área;
+            contas Manus existentes continuam ativas.
           </p>
+          {data && (
+            <p className="admin-pending-count" aria-live="polite">
+              {data.pendingAccountCount === 1
+                ? "1 solicitação de acesso pendente."
+                : `${data.pendingAccountCount} solicitações de acesso pendentes.`}
+            </p>
+          )}
         </div>
         <Link href="/usuarios">
           <Button variant="outline">Abrir usuários e perfis</Button>

@@ -8,7 +8,7 @@ import {
 } from "@shared/records";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { BusinessRecord } from "../drizzle/schema";
+import type { BusinessRecord, User } from "../drizzle/schema";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import {
@@ -25,6 +25,7 @@ import {
   getAdminDashboardCounts,
   getRecordAttachment,
   getUserByEmail,
+  userEmailExists,
   insertBusinessRecord,
   insertStockMovement,
   insertRecordAttachment,
@@ -37,12 +38,14 @@ import {
   UserAccountRoleChangeError,
   InsufficientStockError,
   RecordHasSettlementsError,
+  LocalAccountApprovalError,
   normalizeStockMaterial,
   normalizeStockUnit,
   SettlementExceedsBalanceError,
   SettlementPayerValidationError,
   SettledAmountExceededError,
   setUserAccountRoleSafely,
+  setUserLocalAccountStatusSafely,
   setUserPassword,
   setUserOperationalRole,
   upsertUser,
@@ -51,7 +54,12 @@ import {
   updateBusinessRecord,
 } from "./db";
 import { ENV } from "./_core/env";
-import { hashPassword, normalizeEmail, verifyPassword } from "./_core/localAuth";
+import {
+  hashPassword,
+  isAuthAttemptAllowed,
+  normalizeEmail,
+  verifyPassword,
+} from "./_core/localAuth";
 import { sdk } from "./_core/sdk";
 import { calculateWorkFinanceMetrics } from "./finance";
 import { storageGetSignedUrl, storagePut } from "./storage";
@@ -70,6 +78,29 @@ const attachmentCategorySchema = z.enum([
   "nota_fiscal_cliente",
   "outro",
 ]);
+const localAccountStatusSchema = z.enum(["pending", "approved", "rejected"]);
+const DUMMY_PASSWORD_CREDENTIALS = hashPassword(
+  "lclobras-invalid-account-verifier",
+  "00".repeat(32)
+);
+
+function toPublicUser(user: User | null | undefined) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    openId: user.openId,
+    name: user.name,
+    email: user.email,
+    loginMethod: user.loginMethod,
+    role: user.role,
+    operationalRole: user.operationalRole,
+    localAccountStatus: user.localAccountStatus,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    lastSignedIn: user.lastSignedIn,
+  };
+}
+
 const recordInput = z.object({
   module: moduleSchema,
   code: z.string().trim().max(80).optional().nullable(),
@@ -737,7 +768,7 @@ async function ensureUnsettledAmount(
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) => toPublicUser(ctx.user)),
     register: publicProcedure
       .input(
         z.object({
@@ -748,29 +779,38 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const email = normalizeEmail(input.email);
-        if (await getUserByEmail(email))
+        const ip = ctx.req.ip || ctx.req.socket.remoteAddress || "unknown";
+        if (!isAuthAttemptAllowed("register", ip, email))
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Muitas solicitações deste endereço. Tente novamente mais tarde.",
+          });
+        if (await userEmailExists(email))
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              "Já existe uma conta com este e-mail. Use o login ou o acesso Manus para definir uma senha.",
+              "Já existe uma conta com este e-mail. Entre com o método de acesso já cadastrado ou contate um administrador.",
           });
         const credentials = await hashPassword(input.password);
-        const user = await createLocalUser({
-          name: input.name,
-          email,
-          passwordHash: credentials.hash,
-          passwordSalt: credentials.salt,
-          role: email === ENV.ownerEmail ? "admin" : "user",
-        });
+        let user;
+        try {
+          user = await createLocalUser({
+            name: input.name,
+            email,
+            passwordHash: credentials.hash,
+            passwordSalt: credentials.salt,
+          });
+        } catch (error) {
+          if (isDuplicateKeyError(error))
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "Já existe uma solicitação ou conta com este e-mail. Contate um administrador.",
+            });
+          throw error;
+        }
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const sessionToken = await sdk.createSessionToken(user.openId, {
-          name: user.name ?? input.name,
-        });
-        ctx.res.cookie(COOKIE_NAME, sessionToken, {
-          ...getSessionCookieOptions(ctx.req),
-          maxAge: 1000 * 60 * 60 * 24 * 365,
-        });
-        return user;
+        return { success: true, status: "pending" as const };
       }),
     login: publicProcedure
       .input(
@@ -780,8 +820,17 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const user = await getUserByEmail(normalizeEmail(input.email));
+        const email = normalizeEmail(input.email);
+        const ip = ctx.req.ip || ctx.req.socket.remoteAddress || "unknown";
+        if (!isAuthAttemptAllowed("login", ip, email))
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Muitas tentativas de acesso. Aguarde antes de tentar novamente.",
+          });
+        const user = await getUserByEmail(email);
         if (!user?.passwordHash || !user.passwordSalt) {
+          const dummy = await DUMMY_PASSWORD_CREDENTIALS;
+          await verifyPassword(input.password, dummy.hash, dummy.salt);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "E-mail ou senha inválidos.",
@@ -797,15 +846,24 @@ export const appRouter = router({
             code: "UNAUTHORIZED",
             message: "E-mail ou senha inválidos.",
           });
+        if (user.localAccountStatus !== "approved")
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              user.localAccountStatus === "pending"
+                ? "Sua solicitação aguarda aprovação de um administrador."
+                : "Esta conta não está aprovada. Contate um administrador.",
+          });
         await upsertUser({ openId: user.openId, lastSignedIn: new Date() });
         const sessionToken = await sdk.createSessionToken(user.openId, {
           name: user.name ?? "",
+          sessionVersion: user.sessionVersion,
         });
         ctx.res.cookie(COOKIE_NAME, sessionToken, {
           ...getSessionCookieOptions(ctx.req),
           maxAge: 1000 * 60 * 60 * 24 * 365,
         });
-        return user;
+        return { success: true } as const;
       }),
     setPassword: protectedProcedure
       .input(z.object({ password: z.string().min(8).max(128) }))
@@ -1880,6 +1938,35 @@ export const appRouter = router({
   }),
   people: router({
     list: adminProcedure.query(() => listBusinessUsers()),
+    setLocalAccountStatus: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          status: localAccountStatusSchema,
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await setUserLocalAccountStatusSafely(
+            input.id,
+            input.status,
+            ctx.user.id
+          );
+        } catch (error) {
+          if (error instanceof LocalAccountApprovalError) {
+            const code =
+              error.reason === "not_found"
+                ? "NOT_FOUND"
+                : error.reason === "self_change" ||
+                    error.reason === "owner_required" ||
+                    error.reason === "not_local"
+                  ? "FORBIDDEN"
+                  : "PRECONDITION_FAILED";
+            fail(code, error.message);
+          }
+          throw error;
+        }
+      }),
     setOperationalRole: adminProcedure
       .input(
         z.object({

@@ -1217,6 +1217,15 @@ textarea.form-control {
   font-size: 10px;
   line-height: 1.45;
 }
+.login-notice {
+  color: #246546;
+  background: #edf7f1;
+  border: 1px solid #cde8d7;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .login-switch,
 .manus-login-button {
   width: 100%;

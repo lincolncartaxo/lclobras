@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { count } from "drizzle-orm";
 import {
@@ -90,12 +90,35 @@ export async function getUserByOpenId(openId: string) {
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
+  const normalizedEmail = email.trim().toLowerCase();
   const result = await db
     .select()
     .from(users)
-    .where(eq(users.email, email))
+    .where(
+      or(
+        eq(users.normalizedEmail, normalizedEmail),
+        sql`lower(${users.email}) = ${normalizedEmail}`
+      )
+    )
+    .limit(2);
+  return result.length === 1 ? result[0] : undefined;
+}
+
+export async function userEmailExists(email: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const normalizedEmail = email.trim().toLowerCase();
+  const result = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      or(
+        eq(users.normalizedEmail, normalizedEmail),
+        sql`lower(${users.email}) = ${normalizedEmail}`
+      )
+    )
     .limit(1);
-  return result[0];
+  return result.length > 0;
 }
 
 export async function createLocalUser(input: {
@@ -103,19 +126,21 @@ export async function createLocalUser(input: {
   email: string;
   passwordHash: string;
   passwordSalt: string;
-  role?: "user" | "admin";
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const openId = `local_${nanoid(32)}`;
+  const normalizedEmail = input.email.trim().toLowerCase();
   await db.insert(users).values({
     openId,
     name: input.name,
-    email: input.email,
+    email: normalizedEmail,
+    normalizedEmail,
     loginMethod: "email",
     passwordHash: input.passwordHash,
     passwordSalt: input.passwordSalt,
-    role: input.role ?? "user",
+    role: "user",
+    localAccountStatus: "pending",
     lastSignedIn: new Date(),
   });
   return getUserByOpenId(openId);
@@ -128,10 +153,33 @@ export async function setUserPassword(
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db
-    .update(users)
-    .set({ passwordHash, passwordSalt, loginMethod: "email" })
-    .where(eq(users.id, id));
+  await db.transaction(async tx => {
+    const accountRows = await tx
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, id))
+      .for("update");
+    const email = accountRows[0]?.email?.trim().toLowerCase();
+    if (!email) throw new Error("A valid e-mail is required for a local password.");
+    const existing = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.normalizedEmail, email))
+      .limit(1);
+    if (existing[0] && existing[0].id !== id) {
+      throw new Error("This e-mail is already attached to another local account.");
+    }
+    await tx
+      .update(users)
+      .set({
+        passwordHash,
+        passwordSalt,
+        loginMethod: "email",
+        normalizedEmail: email,
+        sessionVersion: sql`${users.sessionVersion} + 1`,
+      })
+      .where(eq(users.id, id));
+  });
 }
 
 export async function listBusinessRecords(module?: string) {
@@ -619,6 +667,7 @@ export async function listBusinessUsers() {
       email: users.email,
       role: users.role,
       operationalRole: users.operationalRole,
+      localAccountStatus: users.localAccountStatus,
       openId: users.openId,
     })
     .from(users)
@@ -626,7 +675,82 @@ export async function listBusinessUsers() {
   return rows.map(({ openId, ...person }) => ({
     ...person,
     isOwner: openId === ENV.ownerOpenId,
+    isLocalAccount: openId.startsWith("local_"),
   }));
+}
+
+export class LocalAccountApprovalError extends Error {
+  constructor(
+    readonly reason:
+      | "not_found"
+      | "not_local"
+      | "self_change"
+      | "last_admin"
+      | "owner_required"
+  ) {
+    const messages = {
+      not_found: "Usuário não encontrado.",
+      not_local: "Somente contas locais por e-mail podem ser aprovadas aqui.",
+      self_change: "Um administrador não pode revogar a própria conta.",
+      last_admin: "Não é possível revogar o último superusuário admin aprovado.",
+      owner_required: "A conta proprietária do projeto deve permanecer aprovada.",
+    };
+    super(messages[reason]);
+    this.name = "LocalAccountApprovalError";
+  }
+}
+
+export async function setUserLocalAccountStatusSafely(
+  id: number,
+  status: User["localAccountStatus"],
+  actorId: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db.transaction(async tx => {
+    const accountRows = await tx
+      .select({
+        id: users.id,
+        role: users.role,
+        openId: users.openId,
+        localAccountStatus: users.localAccountStatus,
+      })
+      .from(users)
+      .orderBy(asc(users.id))
+      .for("update");
+    const target = accountRows.find(account => account.id === id);
+    if (!target) throw new LocalAccountApprovalError("not_found");
+    if (target.openId === ENV.ownerOpenId && status !== "approved") {
+      throw new LocalAccountApprovalError("owner_required");
+    }
+    if (!target.openId.startsWith("local_")) {
+      throw new LocalAccountApprovalError("not_local");
+    }
+    if (target.id === actorId && status !== "approved") {
+      throw new LocalAccountApprovalError("self_change");
+    }
+    if (
+      status !== "approved" &&
+      target.role === "admin" &&
+      target.localAccountStatus === "approved" &&
+      accountRows.filter(
+        account =>
+          account.role === "admin" && account.localAccountStatus === "approved"
+      ).length <= 1
+    ) {
+      throw new LocalAccountApprovalError("last_admin");
+    }
+    if (target.localAccountStatus !== status) {
+      await tx
+        .update(users)
+        .set({
+          localAccountStatus: status,
+          sessionVersion: sql`${users.sessionVersion} + 1`,
+        })
+        .where(eq(users.id, id));
+    }
+    return { previousStatus: target.localAccountStatus, status };
+  });
 }
 
 export async function setUserOperationalRole(
@@ -645,12 +769,14 @@ export class UserAccountRoleChangeError extends Error {
       | "self_change"
       | "last_admin"
       | "owner_required"
+      | "account_not_approved"
   ) {
     const messages = {
       not_found: "Usuário não encontrado.",
       self_change: "Um administrador não pode alterar o próprio papel de aplicação.",
       last_admin: "Não é possível rebaixar o último superusuário admin.",
       owner_required: "A conta proprietária do projeto deve permanecer como superusuário admin.",
+      account_not_approved: "Aprove a conta local antes de conceder o papel admin.",
     };
     super(messages[reason]);
     this.name = "UserAccountRoleChangeError";
@@ -666,7 +792,12 @@ export async function setUserAccountRoleSafely(
   if (!db) throw new Error("Database is not available");
   return db.transaction(async tx => {
     const accountRows = await tx
-      .select({ id: users.id, role: users.role, openId: users.openId })
+      .select({
+        id: users.id,
+        role: users.role,
+        openId: users.openId,
+        localAccountStatus: users.localAccountStatus,
+      })
       .from(users)
       .orderBy(asc(users.id))
       .for("update");
@@ -674,6 +805,13 @@ export async function setUserAccountRoleSafely(
     if (!target) throw new UserAccountRoleChangeError("not_found");
     if (target.openId === ENV.ownerOpenId && role !== "admin") {
       throw new UserAccountRoleChangeError("owner_required");
+    }
+    if (
+      target.openId.startsWith("local_") &&
+      target.localAccountStatus !== "approved" &&
+      role === "admin"
+    ) {
+      throw new UserAccountRoleChangeError("account_not_approved");
     }
     if (target.id === actorId && target.role !== role) {
       throw new UserAccountRoleChangeError("self_change");
@@ -695,7 +833,7 @@ export async function setUserAccountRoleSafely(
 export async function getAdminDashboardCounts() {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [moduleRows, userRows, attachmentRows, settlementRows] =
+  const [moduleRows, userRows, attachmentRows, settlementRows, pendingRows] =
     await Promise.all([
       db
         .select({ module: businessRecords.module, total: count() })
@@ -707,6 +845,10 @@ export async function getAdminDashboardCounts() {
         .groupBy(users.role),
       db.select({ total: count() }).from(recordAttachments),
       db.select({ total: count() }).from(recordSettlements),
+      db
+        .select({ total: count() })
+        .from(users)
+        .where(eq(users.localAccountStatus, "pending")),
     ]);
   const moduleCounts = Object.fromEntries(
     moduleRows.map(row => [row.module, Number(row.total)])
@@ -722,6 +864,7 @@ export async function getAdminDashboardCounts() {
     adminCount: Number(
       userRows.find(row => row.role === "admin")?.total ?? 0
     ),
+    pendingAccountCount: Number(pendingRows[0]?.total ?? 0),
     attachmentCount: Number(attachmentRows[0]?.total ?? 0),
     settlementCount: Number(settlementRows[0]?.total ?? 0),
   };

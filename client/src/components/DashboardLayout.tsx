@@ -35,15 +35,21 @@ export default function DashboardLayout({
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async () => {
       setAuthPassword("");
+      setAuthNotice(null);
       await utils.auth.me.invalidate();
     },
   });
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: async () => {
       setAuthPassword("");
+      setAuthMode("login");
+      setAuthNotice(
+        "Solicitação enviada. Você poderá entrar depois que um administrador aprovar o acesso."
+      );
       await utils.auth.me.invalidate();
     },
   });
@@ -84,7 +90,7 @@ export default function DashboardLayout({
           <BrandMark />
           <span className="eyebrow">GESTÃO INTEGRADA DE OBRAS</span>
           <h1>Seu canteiro, contrato e caixa em uma só visão.</h1>
-          <p>Acesse o painel operacional do LclObras com uma conta própria.</p>
+          <p>Solicite acesso ao painel operacional do LclObras ou entre com sua conta.</p>
           <form className="login-form" onSubmit={submitAuth}>
             {authMode === "register" && (
               <input
@@ -115,6 +121,7 @@ export default function DashboardLayout({
               minLength={8}
               required
             />
+            {authNotice && <span className="login-notice" role="status">{authNotice}</span>}
             {authError && <span className="login-error">{authError}</span>}
             <Button className="login-button" size="lg" type="submit" disabled={authMutation.isPending}>
               {authMutation.isPending
@@ -130,11 +137,12 @@ export default function DashboardLayout({
             type="button"
             onClick={() => {
               setAuthMode(authMode === "login" ? "register" : "login");
+              setAuthNotice(null);
               loginMutation.reset();
               registerMutation.reset();
             }}
           >
-            {authMode === "login" ? "Ainda não tenho uma conta" : "Já tenho uma conta"}
+            {authMode === "login" ? "Solicitar acesso" : "Já tenho uma conta"}
           </button>
           <button className="manus-login-button" type="button" onClick={() => startLogin()}>
             Entrar com Manus

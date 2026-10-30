@@ -9,6 +9,11 @@ const operationalRoleLabels: Record<string, string> = {
   almoxarife: "Almoxarife",
   encarregado: "Encarregado",
 };
+const approvalStatusLabels: Record<"pending" | "approved" | "rejected", string> = {
+  pending: "Pendente",
+  approved: "Aprovado",
+  rejected: "Rejeitado",
+};
 
 export default function UsersPage() {
   const { user } = useAuth();
@@ -34,6 +39,22 @@ export default function UsersPage() {
     },
     onError: error => toast.error(error.message),
   });
+  const updateLocalAccountStatus = trpc.people.setLocalAccountStatus.useMutation({
+    onSuccess: async result => {
+      await Promise.all([
+        utils.people.list.invalidate(),
+        utils.admin.overview.invalidate(),
+      ]);
+      toast.success(
+        result.status === "approved"
+          ? "Solicitação aprovada. O usuário já pode entrar."
+          : result.status === "rejected"
+            ? "Solicitação rejeitada; o acesso foi bloqueado."
+            : "Solicitação voltou para pendente."
+      );
+    },
+    onError: error => toast.error(error.message),
+  });
 
   return (
     <div className="module-page">
@@ -46,8 +67,8 @@ export default function UsersPage() {
             <span className="eyebrow">ADMINISTRAÇÃO</span>
             <h1>Usuários e permissões</h1>
             <p>
-              Gerencie o acesso total do app e os papéis operacionais de cada
-              conta autenticada.
+              Gerencie solicitações de acesso, o papel do app e os perfis
+              operacionais das contas.
             </p>
           </div>
         </div>
@@ -61,11 +82,12 @@ export default function UsersPage() {
       ) : (
         <>
           <div className="permission-note">
-            <AlertTriangle size={15} /> O papel <strong>Admin</strong> permite
-            todas as operações e a gestão de usuários. Contas são criadas pelo
-            login Manus; esta tela altera papéis de contas já cadastradas. Para
-            evitar lockout, não é possível rebaixar a própria conta nem o último
-            administrador. A conta proprietária do projeto permanece como admin.
+            <AlertTriangle size={15} /> Novos cadastros por e-mail ficam pendentes
+            e não acessam dados até um administrador aprová-los nesta tela;
+            contas Manus existentes continuam ativas. O papel <strong>Admin</strong>
+            permite todas as operações. Para evitar lockout, não é possível
+            rebaixar a própria conta, revogar a própria aprovação ou remover o
+            último administrador. A conta proprietária do projeto permanece admin.
           </div>
           <section className="table-card">
             <div className="data-table-wrap">
@@ -74,6 +96,7 @@ export default function UsersPage() {
                   <tr>
                     <th>Usuário</th>
                     <th>E-mail</th>
+                    <th>Solicitação local</th>
                     <th>Papel da aplicação</th>
                     <th>Perfil operacional</th>
                   </tr>
@@ -81,11 +104,11 @@ export default function UsersPage() {
                 <tbody>
                   {people.isLoading ? (
                     <tr>
-                      <td colSpan={4}>Carregando usuários…</td>
+                      <td colSpan={5}>Carregando usuários…</td>
                     </tr>
                   ) : people.error ? (
                     <tr>
-                      <td colSpan={4}>
+                      <td colSpan={5}>
                         Não foi possível carregar: {people.error.message}
                       </td>
                     </tr>
@@ -100,6 +123,34 @@ export default function UsersPage() {
                         </td>
                         <td>{person.email || "—"}</td>
                         <td>
+                          {person.isLocalAccount ? (
+                            <select
+                              value={person.localAccountStatus}
+                              disabled={updateLocalAccountStatus.isPending}
+                              aria-label={`Aprovação de cadastro de ${person.name || person.email}`}
+                              onChange={event =>
+                                updateLocalAccountStatus.mutate({
+                                  id: person.id,
+                                  status: event.target.value as
+                                    | "pending"
+                                    | "approved"
+                                    | "rejected",
+                                })
+                              }
+                            >
+                              {Object.entries(approvalStatusLabels).map(
+                                ([value, label]) => (
+                                  <option value={value} key={value}>
+                                    {label}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          ) : (
+                            <span className="record-sub">Conta Manus ativa</span>
+                          )}
+                        </td>
+                        <td>
                           <select
                             className={
                               person.role === "admin" ? "account-role-admin" : ""
@@ -108,12 +159,17 @@ export default function UsersPage() {
                             disabled={
                               person.id === user.id ||
                               person.isOwner ||
+                              (person.isLocalAccount &&
+                                person.localAccountStatus !== "approved") ||
                               updateAccountRole.isPending
                             }
                             aria-label={`Papel da aplicação de ${person.name || person.email}`}
                             title={
                               person.isOwner
                                 ? "A conta proprietária do projeto deve permanecer como superusuário admin."
+                                : person.isLocalAccount &&
+                                    person.localAccountStatus !== "approved"
+                                  ? "Aprove a conta local antes de conceder papel de administrador."
                                 : person.id === user.id
                                 ? "Outro administrador deve alterar seu papel."
                                 : "Alterar papel de acesso ao aplicativo"
@@ -162,9 +218,8 @@ export default function UsersPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={4}>
-                        Nenhum usuário cadastrado. Usuários aparecerão após
-                        autenticação no LclObras.
+                      <td colSpan={5}>
+                        Nenhum usuário cadastrado ou solicitação de acesso recebida.
                       </td>
                     </tr>
                   )}

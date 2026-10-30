@@ -19,6 +19,15 @@ async function startServer() {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
   registerOAuthRoutes(app);
+  app.use("/api/trpc", (req, res, next) => {
+    if (req.method === "POST" && req.get("sec-fetch-site") === "cross-site") {
+      return res.status(403).json({ error: "Cross-site mutations are not allowed." });
+    }
+    if (req.method === "POST" && !req.is("application/json")) {
+      return res.status(415).json({ error: "tRPC mutations require application/json." });
+    }
+    next();
+  });
   // tRPC API
   app.use(
     "/api/trpc",

@@ -47,10 +47,13 @@ export function registerOAuthRoutes(app: Express) {
         loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
         lastSignedIn: new Date(),
       });
+      const account = await db.getUserByOpenId(userInfo.openId);
+      if (!account) throw new Error("User synchronization failed");
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
+        sessionVersion: account.sessionVersion,
       });
 
       const cookieOptions = getSessionCookieOptions(req);

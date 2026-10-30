@@ -15,6 +15,8 @@ Platform configuration is readable and editable through `webdev.config`. Default
 
 ## Login próprio
 
-O aplicativo oferece cadastro e login por e-mail e senha no MySQL, sem depender do OAuth da Manus. Configure `MANUS_JWT_SECRET` com um segredo aleatório longo; `OWNER_EMAIL` é opcional e torna o cadastro desse e-mail administrador. O login Manus continua disponível como fallback durante a transição.
+O aplicativo oferece solicitação de cadastro e login por e-mail e senha no MySQL, além do acesso Manus para contas existentes. Toda solicitação local começa como pendente, não recebe sessão e não acessa dados até um administrador aprová-la em **Usuários e permissões**. Cadastros locais sempre começam como `user`; nenhum e-mail informado no formulário concede papel `admin`. O status pode ser aprovado ou rejeitado por um administrador, e uma conta revogada perde acesso mesmo com uma sessão antiga.
 
-Antes do primeiro deploy com autenticação própria, aplique as migrações com `pnpm db:migrate` usando a mesma `DATABASE_URL` da produção. Nunca reutilize uma senha como `MANUS_JWT_SECRET` e não coloque segredos no código-fonte.
+Configure `MANUS_JWT_SECRET` com um segredo aleatório longo para assinar sessões. A conta proprietária do projeto mantém o papel admin por sua identidade Manus autenticada (`OWNER_OPEN_ID`), não por e-mail autodeclarado. Não configure `OWNER_EMAIL` para conceder privilégios.
+
+Antes do deploy com cadastro local, aplique as migrações `0006_local_email_auth` e `0007_local_account_approval` com `pnpm db:migrate`, usando a `DATABASE_URL` configurada para o ambiente. As contas existentes recebem status `approved`; novas solicitações são `pending`. Nunca reutilize uma senha como `MANUS_JWT_SECRET` e não coloque segredos no código-fonte.
