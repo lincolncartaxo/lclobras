@@ -20,6 +20,13 @@
 - [x] Reforçar a compatibilidade entre obra e centro de custo: custos de obra devem apontar para centro daquela obra; custos administrativos devem apontar para centro de administração, com validação no servidor.
 - [x] Permitir armazenar arquivos vinculados aos respectivos registros, como contratos, assinatura de recebimento de material e notas fiscais emitidas para cliente; permitir consultar e abrir/baixar os anexos com controle de acesso.
 
+## Avanço físico x financeiro por item
+- [x] Para cada item ativo da planilha contratada de uma obra, registrar snapshots cumulativos por data com avanço físico (%) e valor acumulado de medição aprovado pelo cliente (R$); corrigir a mesma data sem criar duplicidade e preservar o histórico das demais datas.
+- [x] Comparar cada item usando valor físico equivalente = valor contratado do item × avanço físico; avanço financeiro = medição aprovada acumulada ÷ valor contratado; diferença em R$ = medição aprovada − valor físico equivalente; diferença em pontos percentuais = avanço financeiro − avanço físico. Indicar que positivo é valor aprovado à frente e negativo é execução física à frente.
+- [x] Exibir uma visão ponderada pelo valor contratado, filtrável por obra, com valores contratados, físico, medição aprovada, percentuais, diferenças em reais e pontos percentuais, data da última medição e histórico por item; não usar média simples dos percentuais.
+- [x] Disponibilizar a tela em português na navegação e no manifesto de rotas; proteger leitura com autenticação, permitir gravação/correção somente a administradores e validar no servidor vínculo do item/obra, data válida não futura, percentuais (0% a 100%) e que a medição aprovada não exceda o valor contratado vigente.
+- [x] Diferenciar medição aprovada de faturamento e recebimento: valores aprovados por item não alteram contas a receber nem caixa; recebimentos efetivos continuam sendo registrados no fluxo financeiro.
+
 ## Pedidos, compras e fornecedores
 - [x] Disponibilizar controle de pedidos (códigos) x controle de compras.
 - [x] Disponibilizar cadastro de fornecedores/colaboradores.
@@ -54,4 +61,5 @@
 - [x] Enviar as mudanças do painel administrativo à branch `main` do repositório `https://github.com/lincolncartaxo/lclobras` e registrar o checkpoint do projeto sem force-push (commit `807f6c9`).
 
 ## Publicação via Vercel
-- [ ] Fazer a raiz de `https://lclobras.vercel.app/` servir o `index.html` e os assets do build `dist/public`, encaminhar `/api/*` e `/manus-storage/*` ao backend Manus já publicado e permitir deep links da SPA, sem expor o bundle do servidor como página inicial.
+- [x] Fazer a raiz de `https://lclobras.vercel.app/` servir o `index.html` e os assets do build `dist/public`, encaminhar `/api/*` e `/manus-storage/*` ao backend Manus já publicado e permitir deep links da SPA, sem expor o bundle do servidor como página inicial.
+- [ ] Solicitar ao suporte Manus a autorização do domínio `lclobras.vercel.app` como `redirect_uri` permitido do OAuth deste projeto; até isso ser liberado, o login Manus na Vercel permanece bloqueado pelo erro de domínio não permitido.

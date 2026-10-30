@@ -10,6 +10,7 @@ import {
   LogOut,
   UserRound,
   ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -19,6 +20,7 @@ const headings: Record<string, string> = {
   "/": "Visão geral",
   "/administracao": "Painel de administração",
   "/usuarios": "Usuários e perfis",
+  "/avanco-orcamentario": "Avanço físico x financeiro",
 };
 
 export default function DashboardLayout({
@@ -120,6 +122,16 @@ export default function DashboardLayout({
                   </Link>
                 );
               })}
+              {group === "Obras" && (
+                <Link
+                  href="/avanco-orcamentario"
+                  className={`nav-link ${location === "/avanco-orcamentario" ? "active" : ""}`}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <TrendingUp size={16} />
+                  <span>Avanço físico-financeiro</span>
+                </Link>
+              )}
             </div>
           ))}
           {user.role === "admin" && (

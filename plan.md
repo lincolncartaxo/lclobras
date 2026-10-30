@@ -32,6 +32,7 @@ Os registros de negócio usam estrutura compartilhada, com `module`, título/có
 
 - `client/src/pages/Home.tsx`: painel executivo, resumo do caixa e resultado de cada obra.
 - `client/src/pages/ModulePage.tsx`: cadastros/listagens operacionais, relatórios de fluxo, anexos e baixas.
+- `client/src/pages/BudgetProgressPage.tsx`: comparação do avanço físico e financeiro aprovado item a item da planilha contratada.
 - `client/src/pages/UsersPage.tsx`: atribuição administrativa dos perfis operacionais.
 - `client/src/pages/AdminDashboardPage.tsx`: visão geral e atalhos centrais para operações administrativas.
 - `client/src/components/DashboardLayout.tsx`: navegação e identidade do LclObras.
@@ -39,8 +40,8 @@ Os registros de negócio usam estrutura compartilhada, com `module`, título/có
 - `client/public/manus-routes.json`: rotas públicas de página reconhecidas pelo WebDev.
 - `server/routers.ts`: procedures tRPC autenticadas, regras e validações de domínio.
 - `server/db.ts` e `server/storage.ts`: persistência e integração do armazenamento gerenciado.
-- `drizzle/schema.ts`, `drizzle/relations.ts` e `drizzle/*.sql`: modelo relacional e migrações aditivas, incluindo a identidade única da Administração Central e a origem central das baixas.
-- `shared/records.ts`: contratos de tipos e permissões compartilhados entre cliente e servidor.
+- `drizzle/schema.ts`, `drizzle/relations.ts` e `drizzle/*.sql`: modelo relacional e migrações aditivas, incluindo centro sistêmico, origem das baixas e snapshots de avanço contratual.
+- `shared/records.ts` e `shared/budget-progress.ts`: contratos de módulos/permissões e cálculos financeiros puros compartilhados.
 - `plan.md` e `TODO.md`: decisões aprovadas e resultados/critério de aceite rastreáveis.
 
 ## Direção de design
@@ -85,3 +86,13 @@ As alterações de banco são aditivas: `business_records.systemKey` identifica 
 ## Publicação via Vercel
 
 O projeto Vercel deve usar a raiz do repositório, executar `pnpm build` e servir `dist/public`, nunca `dist/` (que também contém `dist/index.js`, o bundle Node do servidor). O `vercel.json` fixa `outputDirectory: dist/public` e remove do artefato o `api/platform/config.js` gerado vazio; assim, a mesma rota é atendida pelo backend Manus. As regras encaminham `/api/:path*` e `/manus-storage/:path*` para `https://lclobras-zu5mpd42.manus.space` e aplicam fallback SPA para `index.html`. Assim, a interface e seus deep links ficam no CDN do Vercel, enquanto autenticação/API, banco e armazenamento continuam no backend Manus. A configuração segue as orientações oficiais de [Vite no Vercel](https://vercel.com/docs/frameworks/frontend/vite), [diretório de saída do build](https://vercel.com/docs/builds/configure-a-build) e [rewrites externos](https://vercel.com/docs/routing/rewrites).
+
+## Extensão aprovada: avanço físico x financeiro por item
+
+A planilha contratada (`orcamento`) continua sendo a base de comparação. Uma tabela relacional `budget_item_progress` guarda snapshots acumulados por item e data: avanço físico percentual, valor acumulado de medição aprovado pelo cliente, observações, autor e datas. A chave única `(budgetItemId, measurementDate)` permite corrigir o registro da mesma data sem duplicá-lo; a referência restritiva preserva histórico e impede apagar o item orçamentário enquanto houver medições.
+
+Por item, o valor físico equivalente é `valor contratado do item × avanço físico (%)`; o avanço financeiro aprovado é `medição aprovada acumulada ÷ valor contratado`; a diferença em reais é `medição aprovada − valor físico equivalente`, e a diferença em pontos percentuais é `avanço financeiro − avanço físico`. Diferença positiva indica valor aprovado à frente; negativa indica execução física à frente da aprovação. Totais usam ponderação pelo valor contratado, não média simples dos percentuais.
+
+A medição financeira significa valor aprovado pelo cliente e não faturamento nem recebimento de caixa. Contas a receber e o fluxo de caixa continuam sendo a fonte de valores efetivamente recebidos. A página `/avanco-orcamentario` filtra por obra, exibe indicadores/tabela/histórico e registra snapshots cumulativos; procedimentos autenticados validam item, obra, data válida não futura, percentuais (0% a 100%) e limites contratuais. Até haver perfil específico de engenharia/financeiro, somente `admin` pode gravar ou corrigir snapshots de avanço/aprovação; usuários autenticados podem consultar. O manifesto declara a rota e o shell oferece atalho de navegação.
+
+Em cada data selecionada, o formulário sugere o snapshot existente naquela data ou o mais recente anterior; não transporta valores de um snapshot futuro para um registro histórico. O relatório vigente usa somente o snapshot mais recente até a data atual, evitando que qualquer registro futuro previamente importado antecipe o avanço.

@@ -48,6 +48,11 @@ import {
 } from "./db";
 import { calculateWorkFinanceMetrics } from "./finance";
 import { storageGetSignedUrl, storagePut } from "./storage";
+import {
+  BudgetItemProgressIntegrityError,
+  listAllBudgetItemProgress,
+  saveBudgetItemProgressSafely,
+} from "./db";
 
 const moduleSchema = z.enum(BUSINESS_MODULE_IDS);
 const roleSchema = z.enum(["administrativo", "almoxarife", "encarregado"]);
@@ -461,6 +466,18 @@ function settlementTotal(
 function dueDate(details: Record<string, unknown>) {
   const value = details.vencimento;
   return typeof value === "string" ? value : "";
+}
+
+function todayInSaoPaulo() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = (type: string) =>
+    parts.find(part => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function validateFinancialFields(
@@ -1075,6 +1092,8 @@ export const appRouter = router({
             await updateFinancialRecordSafely(id, updatedRecord);
           else await updateBusinessRecord(id, updatedRecord);
         } catch (error) {
+          if (error instanceof BudgetItemProgressIntegrityError)
+            fail("PRECONDITION_FAILED", error.message);
           if (error instanceof InsufficientStockError)
             fail("PRECONDITION_FAILED", error.message);
           if (error instanceof SettledAmountExceededError)
@@ -1247,6 +1266,8 @@ export const appRouter = router({
         try {
           await deleteBusinessRecord(input.id);
         } catch (error) {
+          if (error instanceof BudgetItemProgressIntegrityError)
+            fail("PRECONDITION_FAILED", error.message);
           if (error instanceof RecordHasSettlementsError)
             fail(
               "PRECONDITION_FAILED",
@@ -1255,6 +1276,123 @@ export const appRouter = router({
           throw error;
         }
         return { success: true };
+      }),
+  }),
+  budgetProgress: router({
+    report: protectedProcedure.query(async () => {
+      const [records, snapshots] = await Promise.all([
+        listBusinessRecords(),
+        listAllBudgetItemProgress(),
+      ]);
+      const works = records
+        .filter(record => record.module === "obras")
+        .map(work => ({ id: work.id, title: work.title, status: work.status }))
+        .sort((a, b) => a.title.localeCompare(b.title, "pt-BR"));
+      const workTitleById = new Map<number, string>(
+        works.map(work => [work.id, work.title] as const)
+      );
+      const snapshotsByItem = new Map<number, typeof snapshots>();
+      for (const snapshot of snapshots) {
+        const itemSnapshots = snapshotsByItem.get(snapshot.budgetItemId) ?? [];
+        itemSnapshots.push(snapshot);
+        snapshotsByItem.set(snapshot.budgetItemId, itemSnapshots);
+      }
+      const rows = records
+        .filter(record => record.module === "orcamento")
+        .map(item => {
+          const details = parseDetails(item.details);
+          return {
+            itemId: item.id,
+            code: item.code,
+            title: item.title,
+            activity: String(details.atividade ?? ""),
+            workId: item.workId,
+            workTitle: item.workId
+              ? (workTitleById.get(item.workId) ?? "Obra não identificada")
+              : "Sem obra vinculada",
+            contractAmount: Number(item.amount ?? 0),
+            contractedQuantity: Number(
+              details.quantidadeContratada ?? item.quantity ?? 0
+            ),
+            unit: String(details.unidade ?? ""),
+            status: item.status,
+            history: snapshotsByItem.get(item.id) ?? [],
+          };
+        })
+        .sort((a, b) =>
+          `${a.workTitle} ${a.title}`.localeCompare(
+            `${b.workTitle} ${b.title}`,
+            "pt-BR"
+          )
+        );
+      return { works, rows };
+    }),
+    save: adminProcedure
+      .input(
+        z.object({
+          budgetItemId: z.number().int().positive(),
+          measurementDate: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/, "Use o formato AAAA-MM-DD.")
+            .refine(value => {
+              const parsed = new Date(`${value}T00:00:00.000Z`);
+              return (
+                !Number.isNaN(parsed.getTime()) &&
+                parsed.toISOString().slice(0, 10) === value &&
+                value <= todayInSaoPaulo()
+              );
+            }, "Informe uma data válida até hoje."),
+          physicalPercent: z
+            .number()
+            .finite()
+            .nonnegative()
+            .max(100)
+            .refine(
+              value => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7,
+              "Use no máximo duas casas decimais."
+            ),
+          approvedAmount: z
+            .number()
+            .finite()
+            .nonnegative()
+            .refine(
+              value => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7,
+              "Use no máximo duas casas decimais."
+            ),
+          notes: z.string().trim().max(1000).optional().nullable(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const item = await requireRecord(input.budgetItemId);
+        if (item.module !== "orcamento" || item.workId == null)
+          fail(
+            "BAD_REQUEST",
+            "Selecione um item da planilha contratada associado a uma obra."
+          );
+        if (item.status === "cancelado")
+          fail("PRECONDITION_FAILED", "O item selecionado está cancelado.");
+        if (
+          Math.round(input.approvedAmount * 100) >
+          Math.round(Number(item.amount ?? 0) * 100)
+        )
+          fail(
+            "BAD_REQUEST",
+            "A medição aprovada acumulada não pode exceder o valor contratado vigente do item."
+          );
+        try {
+          return await saveBudgetItemProgressSafely({
+            budgetItemId: item.id,
+            measurementDate: input.measurementDate,
+            physicalPercent: input.physicalPercent,
+            approvedAmount: input.approvedAmount,
+            notes: input.notes || null,
+            createdBy: ctx.user.id,
+          });
+        } catch (error) {
+          if (error instanceof BudgetItemProgressIntegrityError)
+            fail("PRECONDITION_FAILED", error.message);
+          throw error;
+        }
       }),
   }),
   settlements: router({

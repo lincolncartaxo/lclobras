@@ -3,6 +3,7 @@
     { "path": "/", "title": "Painel LclObras" },
     { "path": "/administracao", "title": "Painel de administração" },
     { "path": "/usuarios", "title": "Usuários e perfis" },
+    { "path": "/avanco-orcamentario", "title": "Avanço físico x financeiro" },
     { "path": "/m/:moduleId", "title": "Módulos operacionais" }
   ]
 }

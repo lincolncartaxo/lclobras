@@ -3,11 +3,13 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { count } from "drizzle-orm";
 import {
+  budgetItemProgress,
   businessRecords,
   recordAttachments,
   recordSettlements,
   stockOperationLocks,
   type InsertBusinessRecord,
+  type InsertBudgetItemProgress,
   type InsertRecordAttachment,
   type InsertRecordSettlement,
   type BusinessRecord,
@@ -435,6 +437,45 @@ export async function updateBusinessRecord(
       orderCodeNormalized: record.code ? normalizeOrderCode(record.code) : null,
     });
   }
+  if (record.module === "orcamento") {
+    await db.transaction(async tx => {
+      const rows = await tx
+        .select()
+        .from(businessRecords)
+        .where(eq(businessRecords.id, id))
+        .for("update");
+      const existing = rows[0];
+      if (!existing) return;
+      const snapshots = await tx
+        .select()
+        .from(budgetItemProgress)
+        .where(eq(budgetItemProgress.budgetItemId, id))
+        .for("update");
+      if (snapshots.length > 0) {
+        if (record.workId !== undefined && record.workId !== existing.workId)
+          throw new BudgetItemProgressIntegrityError(
+            "Este item possui histórico de avanço e não pode ser transferido para outra obra."
+          );
+        const maxApprovedCents = snapshots.reduce(
+          (max, snapshot) =>
+            Math.max(max, Math.round(Number(snapshot.approvedAmount) * 100)),
+          0
+        );
+        if (
+          record.amount !== undefined &&
+          Math.round(Number(record.amount ?? 0) * 100) < maxApprovedCents
+        )
+          throw new BudgetItemProgressIntegrityError(
+            "O valor contratado não pode ficar abaixo de uma medição já aprovada."
+          );
+      }
+      await tx
+        .update(businessRecords)
+        .set(values)
+        .where(eq(businessRecords.id, id));
+    });
+    return;
+  }
   await db
     .update(businessRecords)
     .set(values)
@@ -457,6 +498,15 @@ export async function deleteBusinessRecord(id: number) {
       .where(eq(recordSettlements.recordId, id))
       .for("update");
     if (settlements.length) throw new RecordHasSettlementsError();
+    const progressSnapshots = await tx
+      .select({ id: budgetItemProgress.id })
+      .from(budgetItemProgress)
+      .where(eq(budgetItemProgress.budgetItemId, id))
+      .for("update");
+    if (progressSnapshots.length)
+      throw new BudgetItemProgressIntegrityError(
+        "O item da planilha possui histórico de avanço e não pode ser excluído."
+      );
     await tx.delete(businessRecords).where(eq(businessRecords.id, id));
   });
 }
@@ -753,4 +803,81 @@ export async function listAllRecordSettlements() {
       desc(recordSettlements.settlementDate),
       desc(recordSettlements.id)
     );
+}
+
+export class BudgetItemProgressIntegrityError extends Error {}
+
+export async function listBudgetItemProgressForItem(budgetItemId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db
+    .select()
+    .from(budgetItemProgress)
+    .where(eq(budgetItemProgress.budgetItemId, budgetItemId))
+    .orderBy(
+      asc(budgetItemProgress.measurementDate),
+      asc(budgetItemProgress.id)
+    );
+}
+
+export async function listAllBudgetItemProgress() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db
+    .select({
+      id: budgetItemProgress.id,
+      budgetItemId: budgetItemProgress.budgetItemId,
+      measurementDate: budgetItemProgress.measurementDate,
+      physicalPercent: budgetItemProgress.physicalPercent,
+      approvedAmount: budgetItemProgress.approvedAmount,
+      notes: budgetItemProgress.notes,
+      createdAt: budgetItemProgress.createdAt,
+      updatedAt: budgetItemProgress.updatedAt,
+    })
+    .from(budgetItemProgress)
+    .orderBy(
+      asc(budgetItemProgress.measurementDate),
+      asc(budgetItemProgress.id)
+    );
+}
+
+export async function saveBudgetItemProgressSafely(
+  snapshot: InsertBudgetItemProgress
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  return db.transaction(async tx => {
+    const items = await tx
+      .select()
+      .from(businessRecords)
+      .where(eq(businessRecords.id, snapshot.budgetItemId))
+      .for("update");
+    const item = items[0];
+    if (!item || item.module !== "orcamento" || item.workId == null)
+      throw new BudgetItemProgressIntegrityError(
+        "Selecione um item válido da planilha contratada vinculado a uma obra."
+      );
+    if (item.status === "cancelado")
+      throw new BudgetItemProgressIntegrityError(
+        "Não é possível registrar avanço em um item cancelado."
+      );
+    const contractCents = Math.round(Number(item.amount ?? 0) * 100);
+    const approvedCents = Math.round(Number(snapshot.approvedAmount) * 100);
+    if (approvedCents > contractCents)
+      throw new BudgetItemProgressIntegrityError(
+        "A medição aprovada acumulada não pode exceder o valor contratado do item."
+      );
+    await tx
+      .insert(budgetItemProgress)
+      .values(snapshot)
+      .onDuplicateKeyUpdate({
+        set: {
+          physicalPercent: snapshot.physicalPercent,
+          approvedAmount: snapshot.approvedAmount,
+          notes: snapshot.notes ?? null,
+          updatedAt: new Date(),
+        },
+      });
+    return { success: true };
+  });
 }

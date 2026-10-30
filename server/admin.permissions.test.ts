@@ -29,5 +29,13 @@ describe("admin procedures", () => {
     await expect(
       caller.people.setAccountRole({ id: 42, role: "admin" })
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.budgetProgress.save({
+        budgetItemId: 7,
+        measurementDate: "2026-10-29",
+        physicalPercent: 40,
+        approvedAmount: 1200,
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

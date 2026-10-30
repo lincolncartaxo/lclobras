@@ -137,6 +137,37 @@ export const recordSettlements = mysqlTable(
   })
 );
 
+export const budgetItemProgress = mysqlTable(
+  "budget_item_progress",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    budgetItemId: int("budgetItemId")
+      .notNull()
+      .references(() => businessRecords.id, { onDelete: "restrict" }),
+    measurementDate: varchar("measurementDate", { length: 10 }).notNull(),
+    physicalPercent: decimal("physicalPercent", {
+      precision: 5,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
+    approvedAmount: decimal("approvedAmount", {
+      precision: 14,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
+    notes: text("notes"),
+    createdBy: int("createdBy").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    itemDateUnique: uniqueIndex("budget_item_progress_period_uq").on(
+      table.budgetItemId,
+      table.measurementDate
+    ),
+  })
+);
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type BusinessRecord = typeof businessRecords.$inferSelect;
@@ -145,3 +176,5 @@ export type RecordAttachment = typeof recordAttachments.$inferSelect;
 export type InsertRecordAttachment = typeof recordAttachments.$inferInsert;
 export type RecordSettlement = typeof recordSettlements.$inferSelect;
 export type InsertRecordSettlement = typeof recordSettlements.$inferInsert;
+export type BudgetItemProgress = typeof budgetItemProgress.$inferSelect;
+export type InsertBudgetItemProgress = typeof budgetItemProgress.$inferInsert;
