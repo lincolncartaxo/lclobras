@@ -921,7 +921,7 @@ export class SettlementExceedsBalanceError extends Error {
 export class SettlementPayerValidationError extends Error {
   constructor() {
     super(
-      "Somente despesas a pagar vinculadas a uma obra podem ser marcadas como pagas pela Administração Central."
+      "Somente despesas a pagar vinculadas a uma obra e a um centro de custo dessa mesma obra podem ser marcadas como pagas pela Administração Central."
     );
   }
 }
@@ -943,13 +943,31 @@ export async function insertRecordSettlementSafely(
       (account.module !== "contas-pagar" && account.module !== "contas-receber")
     )
       throw new Error("Financial record not found");
-    if (
-      settlement.paidByCentral &&
-      (account.module !== "contas-pagar" ||
+    if (settlement.paidByCentral) {
+      if (
+        account.module !== "contas-pagar" ||
         account.workId == null ||
-        account.costCenterId == null)
-    )
-      throw new SettlementPayerValidationError();
+        account.costCenterId == null
+      )
+        throw new SettlementPayerValidationError();
+      const centers = await tx
+        .select({
+          module: businessRecords.module,
+          workId: businessRecords.workId,
+          systemKey: businessRecords.systemKey,
+        })
+        .from(businessRecords)
+        .where(eq(businessRecords.id, account.costCenterId))
+        .for("update");
+      const center = centers[0];
+      if (
+        !center ||
+        center.module !== "centros-custo" ||
+        center.workId !== account.workId ||
+        center.systemKey === ADMIN_CENTRAL_COST_CENTER_SYSTEM_KEY
+      )
+        throw new SettlementPayerValidationError();
+    }
     const settlements = await tx
       .select({ amount: recordSettlements.amount })
       .from(recordSettlements)

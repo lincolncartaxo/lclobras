@@ -480,7 +480,13 @@ export default function BudgetProgressPage() {
               <div className="progress-selected-item">
                 <strong>{measurementItem.title}</strong>
                 <span>
-                  {measurementItem.workTitle} · Contratado{" "}
+                  {measurementItem.workTitle} ·{" "}
+                  {measurementItem.code ? `${measurementItem.code} · ` : ""}
+                  {measurementItem.activity || "Item da planilha contratada"}
+                  {measurementItem.contractedQuantity > 0
+                    ? ` · ${measurementItem.contractedQuantity.toLocaleString("pt-BR")} ${measurementItem.unit}`
+                    : ""}
+                  {" · Contratado "}
                   {money(measurementItem.contractAmount)}
                 </span>
               </div>
@@ -522,7 +528,7 @@ export default function BudgetProgressPage() {
                   />
                 </label>
                 <label className="progress-form-wide">
-                  <span>Observações</span>
+                  <span>Observação da medição (opcional)</span>
                   <textarea
                     value={notes}
                     onChange={event => setNotes(event.target.value)}

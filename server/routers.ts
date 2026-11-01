@@ -6,6 +6,7 @@ import {
   BUSINESS_MODULE_IDS,
   type BusinessModuleId,
 } from "@shared/records";
+import { isCalendarDate } from "@shared/date-utils";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { BusinessRecord, User } from "../drizzle/schema";
@@ -1563,7 +1564,9 @@ export const appRouter = router({
               value => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7,
               "Use no máximo duas casas decimais."
             ),
-          settlementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          settlementDate: z
+            .string()
+            .refine(isCalendarDate, "Informe uma data de calendário válida."),
           reference: z.string().trim().max(240).optional().nullable(),
           paidByCentral: z.boolean().default(false),
         })
@@ -1662,7 +1665,7 @@ export const appRouter = router({
         if (!allowedTypes.has(input.contentType))
           fail(
             "BAD_REQUEST",
-            "Formato não permitido. Use PDF, PNG, JPG, WEBP ou XML."
+            "Formato não permitido. Use PDF, PNG, JPG, WEBP, XML ou TXT."
           );
         const bytes = Buffer.from(input.base64, "base64");
         if (

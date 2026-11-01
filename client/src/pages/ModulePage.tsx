@@ -14,7 +14,8 @@ import {
   canWriteModule,
   type BusinessModuleId,
 } from "@shared/records";
-import { getModule } from "@/modules/definitions";
+import { getModule, type BaseFieldKey } from "@/modules/definitions";
+import { isCalendarDate, todayLocalDate } from "@shared/date-utils";
 import {
   AlertCircle,
   Banknote,
@@ -33,7 +34,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRoute } from "wouter";
 import { toast } from "sonner";
 
@@ -196,6 +197,18 @@ function RecordsModule({
   );
   const stockBalances = (stockQuery.data ?? []) as StockRow[];
   const isFinancial = financialModules.has(definition.id);
+  const isBaseFieldVisible = (field: BaseFieldKey) =>
+    definition.visibleBaseFields.includes(field);
+  const baseFieldLabel = (field: BaseFieldKey, fallback: string) =>
+    definition.baseFieldLabels?.[field] ?? fallback;
+  const showWorkField = Boolean(
+    definition.showWork &&
+      (definition.id !== "centros-custo" || form.tipo === "Obra")
+  );
+  const availableStatusOptions = definition.statusOptions ?? statusOptions;
+  const displayedStatusOptions = form.status
+    ? Array.from(new Set([form.status, ...availableStatusOptions]))
+    : availableStatusOptions;
   const filtered = useMemo(() => {
     const text = search.trim().toLocaleLowerCase("pt-BR");
     if (!text) return records;
@@ -213,6 +226,7 @@ function RecordsModule({
       )
     );
   }, [records, search]);
+  const showCodeColumn = isBaseFieldVisible("code");
 
   const createMutation = trpc.records.create.useMutation({
     onSuccess: async () => {
@@ -271,16 +285,18 @@ function RecordsModule({
       quantity: "",
       recordDate: "",
       status:
-        definition.id === "medicoes"
+        definition.defaultStatus ??
+        (definition.id === "medicoes"
           ? "em_analise"
           : definition.id === "almoxarifado-entrada" ||
               definition.id === "almoxarifado-retirada"
             ? "concluido"
-            : "pendente",
+            : "pendente"),
       responsible: "",
       ...Object.fromEntries(
         (definition.fields ?? []).map(field => [field.key, ""])
       ),
+      ...(definition.id === "centros-custo" ? { tipo: "Obra" } : {}),
     });
     setFormOpen(true);
   }
@@ -337,9 +353,22 @@ function RecordsModule({
     const payload = {
       module: definition.id as BusinessModuleId,
       title: form.title.trim(),
-      code: form.code.trim() || null,
-      workId: form.workId ? Number(form.workId) : null,
-      costCenterId: form.costCenterId ? Number(form.costCenterId) : null,
+      code: isBaseFieldVisible("code")
+        ? form.code.trim() || null
+        : (editing?.code ?? null),
+      workId:
+        definition.id === "centros-custo" && details.tipo !== "Obra"
+          ? null
+          : definition.showWork
+            ? form.workId
+              ? Number(form.workId)
+              : null
+            : (editing?.workId ?? null),
+      costCenterId: definition.showCostCenter
+        ? form.costCenterId
+          ? Number(form.costCenterId)
+          : null
+        : (editing?.costCenterId ?? null),
       amount:
         definition.id === "folha"
           ? Math.max(
@@ -349,15 +378,27 @@ function RecordsModule({
                   100
               ) / 100
             )
-          : form.amount === ""
-            ? null
-            : Number(form.amount),
-      quantity: form.quantity === "" ? null : Number(form.quantity),
-      recordDate: form.recordDate || null,
+          : !isBaseFieldVisible("amount")
+            ? (editing?.amount ?? null)
+            : form.amount === ""
+              ? null
+              : Number(form.amount),
+      quantity: isBaseFieldVisible("quantity")
+        ? form.quantity === ""
+          ? null
+          : Number(form.quantity)
+        : (editing?.quantity ?? null),
+      recordDate: isBaseFieldVisible("recordDate")
+        ? form.recordDate || null
+        : (editing?.recordDate ?? null),
       status: isFinancial
         ? (editing?.status ?? "pendente")
-        : form.status || "planejado",
-      responsible: form.responsible.trim() || null,
+        : isBaseFieldVisible("status")
+          ? form.status || definition.defaultStatus || "planejado"
+          : (editing?.status ?? definition.defaultStatus ?? "pendente"),
+      responsible: isBaseFieldVisible("responsible")
+        ? form.responsible.trim() || null
+        : (editing?.responsible ?? null),
       details,
     };
     if (!payload.title)
@@ -559,14 +600,24 @@ function RecordsModule({
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Código</th>
+                  {showCodeColumn && <th>{baseFieldLabel("code", "Código")}</th>}
                   <th>Descrição</th>
                   {definition.showWork && <th>Obra / vínculo</th>}
                   {definition.showCostCenter && <th>Centro de custo</th>}
-                  <th>Data</th>
-                  <th>Responsável</th>
-                  <th>Status</th>
-                  <th className="num">Valor total</th>
+                  {isBaseFieldVisible("recordDate") && (
+                    <th>{baseFieldLabel("recordDate", "Data")}</th>
+                  )}
+                  {isBaseFieldVisible("responsible") && (
+                    <th>{baseFieldLabel("responsible", "Responsável")}</th>
+                  )}
+                  {isBaseFieldVisible("status") && !isFinancial && (
+                    <th>{baseFieldLabel("status", "Situação")}</th>
+                  )}
+                  {isBaseFieldVisible("amount") && (
+                    <th className="num">
+                      {baseFieldLabel("amount", "Valor total (R$)")}
+                    </th>
+                  )}
                   {isFinancial && <th className="num">Em aberto</th>}
                   <th aria-label="Ações" />
                 </tr>
@@ -593,14 +644,16 @@ function RecordsModule({
                   const consumptionVariance = consumed - planned;
                   return (
                     <tr key={record.id}>
-                      <td>
-                        {record.code || <span className="record-sub">—</span>}
-                        {record.sourceModule && (
-                          <span className="record-sub">
-                            Origem automática: {record.sourceModule}
-                          </span>
-                        )}
-                      </td>
+                      {showCodeColumn && (
+                        <td>
+                          {record.code || <span className="record-sub">—</span>}
+                          {record.sourceModule && (
+                            <span className="record-sub">
+                              Origem automática: {record.sourceModule}
+                            </span>
+                          )}
+                        </td>
+                      )}
                       <td className="record-primary">
                         {record.title}
                         {isSystemCentralCenter && (
@@ -608,7 +661,7 @@ function RecordsModule({
                             Centro sistêmico protegido
                           </span>
                         )}
-                        {record.quantity != null && (
+                        {isBaseFieldVisible("quantity") && record.quantity != null && (
                           <span className="record-sub">
                             Qtd. {record.quantity}
                             {record.details?.unidade
@@ -644,30 +697,38 @@ function RecordsModule({
                       {definition.showCostCenter && (
                         <td>{center?.title ?? "—"}</td>
                       )}
-                      <td>
-                        {record.recordDate
-                          ? new Intl.DateTimeFormat("pt-BR").format(
-                              new Date(`${record.recordDate}T12:00:00`)
-                            )
-                          : "—"}
-                      </td>
-                      <td>{record.responsible || "—"}</td>
-                      <td>
-                        <span
-                          className={`table-status status-${record.status.replace(/[^a-z]/g, "")}`}
-                        >
-                          {record.status.replaceAll("_", " ")}
-                        </span>
-                      </td>
-                      <td className="num">
-                        {money(record.amount)}
-                        {isFinancial &&
-                          Number(record.settledAmount ?? 0) > 0 && (
-                            <span className="record-sub">
-                              Baixado: {money(record.settledAmount)}
-                            </span>
-                          )}
-                      </td>
+                      {isBaseFieldVisible("recordDate") && (
+                        <td>
+                          {record.recordDate
+                            ? new Intl.DateTimeFormat("pt-BR").format(
+                                new Date(`${record.recordDate}T12:00:00`)
+                              )
+                            : "—"}
+                        </td>
+                      )}
+                      {isBaseFieldVisible("responsible") && (
+                        <td>{record.responsible || "—"}</td>
+                      )}
+                      {isBaseFieldVisible("status") && !isFinancial && (
+                        <td>
+                          <span
+                            className={`table-status status-${record.status.replace(/[^a-z]/g, "")}`}
+                          >
+                            {record.status.replaceAll("_", " ")}
+                          </span>
+                        </td>
+                      )}
+                      {isBaseFieldVisible("amount") && (
+                        <td className="num">
+                          {money(record.amount)}
+                          {isFinancial &&
+                            Number(record.settledAmount ?? 0) > 0 && (
+                              <span className="record-sub">
+                                Baixado: {money(record.settledAmount)}
+                              </span>
+                            )}
+                        </td>
+                      )}
                       {isFinancial && (
                         <td className="num">
                           {money(record.openBalance ?? record.amount)}
@@ -786,44 +847,36 @@ function RecordsModule({
             )}
             <div className="form-grid">
               <Field
-                label={
-                  definition.id === "obras"
-                    ? "Nome da obra"
-                    : definition.id === "orcamento"
-                      ? "Atividade / item orçamentário"
-                      : "Descrição / identificação"
-                }
+                label={definition.titleLabel ?? "Descrição / identificação"}
                 value={form.title ?? ""}
                 onChange={value => setForm({ ...form, title: value })}
                 required
               />
-              <Field
-                label={
-                  definition.id === "pedidos"
-                    ? "Código do pedido"
-                    : definition.id === "cotacoes"
-                      ? "Código do mapa"
-                      : "Código"
-                }
-                value={form.code ?? ""}
-                onChange={value => setForm({ ...form, code: value })}
-                placeholder="Código interno, pedido ou documento"
-                required={
-                  definition.id === "pedidos" || definition.id === "cotacoes"
-                }
-              />
-              {definition.showWork && (
+              {isBaseFieldVisible("code") && (
+                <Field
+                  label={baseFieldLabel("code", "Código")}
+                  value={form.code ?? ""}
+                  onChange={value => setForm({ ...form, code: value })}
+                  placeholder={
+                    definition.id === "pedidos"
+                      ? "Ex.: PED-001"
+                      : definition.id === "cotacoes"
+                        ? "Ex.: COT-001"
+                        : "Código de identificação"
+                  }
+                  required={
+                    definition.id === "pedidos" || definition.id === "cotacoes"
+                  }
+                />
+              )}
+              {showWorkField && (
                 <div className="form-field">
                   <label>
                     Obra relacionada
-                    {!["centros-custo", "contas-pagar"].includes(definition.id)
-                      ? " *"
-                      : ""}
+                    {definition.id !== "contas-pagar" ? " *" : ""}
                   </label>
                   <select
-                    required={
-                      !["centros-custo", "contas-pagar"].includes(definition.id)
-                    }
+                    required={definition.id !== "contas-pagar"}
                     className="form-control"
                     value={form.workId ?? ""}
                     onChange={event => {
@@ -833,7 +886,9 @@ function RecordsModule({
                       setForm({
                         ...form,
                         workId: event.target.value,
-                        costCenterId: "",
+                        costCenterId: definition.showCostCenter
+                          ? ""
+                          : (form.costCenterId ?? ""),
                         ...(definition.id === "medicoes"
                           ? { contratoFornecedor: "" }
                           : {}),
@@ -846,8 +901,7 @@ function RecordsModule({
                     }}
                   >
                     <option value="">
-                      {definition.id === "centros-custo" ||
-                      definition.id === "contas-pagar"
+                      {definition.id === "contas-pagar"
                         ? "Administração / sem obra"
                         : "Selecione a obra"}
                     </option>
@@ -890,15 +944,10 @@ function RecordsModule({
                   )}
                 </div>
               )}
+              {isBaseFieldVisible("amount") && (
               <div className="form-field">
                 <label>
-                  {definition.id === "obras"
-                    ? "Valor contratado do cliente (R$)"
-                    : definition.id === "orcamento"
-                      ? "Valor previsto da atividade (R$)"
-                      : definition.id === "folha"
-                        ? "Valor líquido da folha (R$)"
-                        : "Valor total (R$)"}
+                  {baseFieldLabel("amount", "Valor total (R$)")}
                   {definition.requireAmount ||
                   (definition.id === "medicoes" &&
                     ["aprovado", "concluido"].includes(form.status))
@@ -931,9 +980,13 @@ function RecordsModule({
                   )}
                 />
               </div>
-              {definition.id !== "obras" && (
+              )}
+              {isBaseFieldVisible("quantity") && (
                 <div className="form-field">
-                  <label>Quantidade{isStockModule ? " *" : ""}</label>
+                  <label>
+                    {baseFieldLabel("quantity", "Quantidade")}
+                    {isStockModule ? " *" : ""}
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -948,11 +1001,10 @@ function RecordsModule({
                   />
                 </div>
               )}
+              {isBaseFieldVisible("recordDate") && (
               <div className="form-field">
                 <label>
-                  {definition.id === "obras"
-                    ? "Data de referência"
-                    : "Data do registro"}
+                  {baseFieldLabel("recordDate", "Data do registro")}
                 </label>
                 <input
                   type="date"
@@ -963,9 +1015,10 @@ function RecordsModule({
                   }
                 />
               </div>
-              {!isFinancial && (
+              )}
+              {!isFinancial && isBaseFieldVisible("status") && (
                 <div className="form-field">
-                  <label>Status</label>
+                  <label>{baseFieldLabel("status", "Status")}</label>
                   <select
                     className="form-control"
                     value={form.status ?? "planejado"}
@@ -973,7 +1026,7 @@ function RecordsModule({
                       setForm({ ...form, status: event.target.value })
                     }
                   >
-                    {statusOptions.map(status => (
+                    {displayedStatusOptions.map(status => (
                       <option key={status} value={status}>
                         {status.replaceAll("_", " ")}
                       </option>
@@ -981,14 +1034,10 @@ function RecordsModule({
                   </select>
                 </div>
               )}
+              {isBaseFieldVisible("responsible") && (
               <div className="form-field">
                 <label>
-                  {definition.id === "almoxarifado-retirada"
-                    ? "Encarregado responsável"
-                    : definition.id === "almoxarifado-entrada" ||
-                        definition.id === "pedidos"
-                      ? "Almoxarife responsável"
-                      : "Responsável"}
+                  {baseFieldLabel("responsible", "Responsável")}
                 </label>
                 <input
                   className="form-control"
@@ -996,9 +1045,13 @@ function RecordsModule({
                   onChange={event =>
                     setForm({ ...form, responsible: event.target.value })
                   }
-                  placeholder="Nome do responsável"
+                  placeholder={baseFieldLabel(
+                    "responsible",
+                    "Nome do responsável"
+                  )}
                 />
               </div>
+              )}
               {(definition.fields ?? []).map(field => {
                 const required = Boolean(
                   field.required ||
@@ -1170,9 +1223,18 @@ function RecordsModule({
                       <select
                         className="form-control"
                         value={form[field.key] ?? ""}
-                        onChange={event =>
-                          setForm({ ...form, [field.key]: event.target.value })
-                        }
+                        onChange={event => {
+                          const value = event.target.value;
+                          setForm({
+                            ...form,
+                            [field.key]: value,
+                            ...(definition.id === "centros-custo" &&
+                            field.key === "tipo" &&
+                            value !== "Obra"
+                              ? { workId: "" }
+                              : {}),
+                          });
+                        }}
                         required={required}
                       >
                         <option value="">Selecione</option>
@@ -1491,7 +1553,7 @@ function AttachmentsDialog({
     ];
     if (!allowed.includes(selectedFile.type))
       return toast.error(
-        "Formato não permitido. Use PDF, PNG, JPG, WEBP ou XML."
+        "Formato não permitido. Use PDF, PNG, JPG, WEBP, XML ou TXT."
       );
     const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -1655,12 +1717,18 @@ function SettlementDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
+  const isReceipt = record.module === "contas-receber";
   const [amount, setAmount] = useState("");
-  const [settlementDate, setSettlementDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [settlementDate, setSettlementDate] = useState(todayLocalDate());
   const [reference, setReference] = useState("");
   const [paidByCentral, setPaidByCentral] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setAmount("");
+    setSettlementDate(todayLocalDate());
+    setReference("");
+    setPaidByCentral(false);
+  }, [open, record.id]);
   const canMarkAsCentralPaid =
     record.module === "contas-pagar" &&
     record.workId != null &&
@@ -1677,9 +1745,14 @@ function SettlementDialog({
         utils.settlements.list.invalidate({ recordId: record.id }),
       ]);
       setAmount("");
+      setSettlementDate(todayLocalDate());
       setReference("");
       setPaidByCentral(false);
-      toast.success("Baixa registrada no histórico financeiro.");
+      toast.success(
+        isReceipt
+          ? "Recebimento registrado no histórico financeiro."
+          : "Pagamento registrado no histórico financeiro."
+      );
     },
     onError: error => toast.error(error.message),
   });
@@ -1692,6 +1765,8 @@ function SettlementDialog({
       return toast.error("Informe um valor de baixa maior que zero.");
     if (amountValue > openBalance)
       return toast.error("O valor excede o saldo em aberto.");
+    if (!isCalendarDate(settlementDate))
+      return toast.error("Informe uma data de calendário válida.");
     create.mutate({
       recordId: record.id,
       amount: amountValue,
@@ -1705,9 +1780,7 @@ function SettlementDialog({
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
-            {record.module === "contas-receber"
-              ? "Registrar recebimento"
-              : "Registrar baixa"}
+            {isReceipt ? "Registrar recebimento" : "Registrar pagamento"}
           </DialogTitle>
           <DialogDescription>
             {record.code ? `${record.code} · ` : ""}
@@ -1716,11 +1789,11 @@ function SettlementDialog({
         </DialogHeader>
         <div className="settlement-balances">
           <div>
-            <span>Valor total</span>
+            <span>{isReceipt ? "Total a receber" : "Total a pagar"}</span>
             <strong>{money(record.amount)}</strong>
           </div>
           <div>
-            <span>Já baixado</span>
+            <span>{isReceipt ? "Já recebido" : "Já pago"}</span>
             <strong>{money(settled)}</strong>
           </div>
           <div>
@@ -1731,7 +1804,9 @@ function SettlementDialog({
         <form onSubmit={submit}>
           <div className="form-grid">
             <div className="form-field">
-              <label>Valor desta baixa (R$)</label>
+              <label>
+                {isReceipt ? "Valor deste recebimento (R$)" : "Valor deste pagamento (R$)"}
+              </label>
               <input
                 type="number"
                 className="form-control"
@@ -1744,7 +1819,9 @@ function SettlementDialog({
               />
             </div>
             <div className="form-field">
-              <label>Data da baixa</label>
+              <label>
+                {isReceipt ? "Data do recebimento" : "Data do pagamento"}
+              </label>
               <input
                 type="date"
                 className="form-control"
@@ -1754,12 +1831,20 @@ function SettlementDialog({
               />
             </div>
             <div className="form-field full">
-              <label>Referência / comprovante</label>
+              <label>
+                {isReceipt
+                  ? "Referência do recebimento / comprovante"
+                  : "Referência do pagamento / comprovante"}
+              </label>
               <input
                 className="form-control"
                 value={reference}
                 onChange={event => setReference(event.target.value)}
-                placeholder="Identificação do pagamento ou recebimento"
+                placeholder={
+                  isReceipt
+                    ? "Identificação do recebimento"
+                    : "Identificação do pagamento"
+                }
                 maxLength={240}
               />
             </div>
@@ -1783,8 +1868,8 @@ function SettlementDialog({
           <div className="form-note immutable-note">
             <LockKeyhole size={14} />
             <span>
-              Baixas são imutáveis: confirme valor e data. Para evitar
-              reversões, não é possível editar ou apagar uma baixa registrada.
+              Pagamentos e recebimentos são imutáveis: confirme valor e data.
+              Não é possível editar ou apagar um lançamento registrado.
             </span>
           </div>
           <DialogFooter className="dialog-footer">
@@ -1800,7 +1885,11 @@ function SettlementDialog({
               className="primary-action"
               disabled={create.isPending || openBalance <= 0}
             >
-              {create.isPending ? "Registrando…" : "Registrar baixa"}
+              {create.isPending
+                ? "Registrando…"
+                : isReceipt
+                  ? "Registrar recebimento"
+                  : "Registrar pagamento"}
             </Button>
           </DialogFooter>
         </form>

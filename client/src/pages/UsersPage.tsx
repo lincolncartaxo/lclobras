@@ -126,8 +126,17 @@ export default function UsersPage() {
                           {person.isLocalAccount ? (
                             <select
                               value={person.localAccountStatus}
-                              disabled={updateLocalAccountStatus.isPending}
+                              disabled={
+                                updateLocalAccountStatus.isPending ||
+                                person.id === user.id ||
+                                person.isOwner
+                              }
                               aria-label={`Aprovação de cadastro de ${person.name || person.email}`}
+                              title={
+                                person.id === user.id || person.isOwner
+                                  ? "Outro administrador deve revisar esta conta."
+                                  : "Aprovar ou rejeitar esta solicitação local."
+                              }
                               onChange={event =>
                                 updateLocalAccountStatus.mutate({
                                   id: person.id,
@@ -193,7 +202,11 @@ export default function UsersPage() {
                         <td>
                           <select
                             value={person.operationalRole}
-                            disabled={updateOperationalRole.isPending}
+                            disabled={
+                              updateOperationalRole.isPending ||
+                              (person.isLocalAccount &&
+                                person.localAccountStatus !== "approved")
+                            }
                             aria-label={`Perfil operacional de ${person.name || person.email}`}
                             onChange={event =>
                               updateOperationalRole.mutate({

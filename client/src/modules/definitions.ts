@@ -28,6 +28,14 @@ export type FieldDefinition = {
   options?: string[];
 };
 
+export type BaseFieldKey =
+  | "code"
+  | "amount"
+  | "quantity"
+  | "recordDate"
+  | "status"
+  | "responsible";
+
 export type ModuleDefinition = {
   id: BusinessModuleId | "fluxo-caixa";
   title: string;
@@ -36,6 +44,11 @@ export type ModuleDefinition = {
   description: string;
   icon: LucideIcon;
   fields?: FieldDefinition[];
+  titleLabel?: string;
+  visibleBaseFields: BaseFieldKey[];
+  baseFieldLabels?: Partial<Record<BaseFieldKey, string>>;
+  statusOptions?: string[];
+  defaultStatus?: string;
   showWork?: boolean;
   showCostCenter?: boolean;
   requireCostCenter?: boolean;
@@ -51,6 +64,16 @@ export const MODULES: ModuleDefinition[] = [
     group: "Obras",
     description: "Cadastre obras, clientes, contratos e valores contratados.",
     icon: Building2,
+    titleLabel: "Nome da obra",
+    visibleBaseFields: ["code", "amount", "status", "responsible"],
+    baseFieldLabels: {
+      code: "Código interno da obra",
+      amount: "Valor contratado do cliente (R$)",
+      status: "Situação da obra",
+      responsible: "Responsável pela obra",
+    },
+    statusOptions: ["planejado", "em_andamento", "concluido", "cancelado"],
+    defaultStatus: "planejado",
     requireAmount: true,
     fields: [
       { key: "cliente", label: "Cliente / contratante", required: true },
@@ -67,6 +90,8 @@ export const MODULES: ModuleDefinition[] = [
     group: "Obras",
     description: "Cadastre os contratantes e seus dados de contato.",
     icon: Building2,
+    titleLabel: "Nome / razão social",
+    visibleBaseFields: [],
     fields: [
       { key: "documento", label: "CNPJ / CPF" },
       { key: "contato", label: "Contato principal" },
@@ -87,6 +112,15 @@ export const MODULES: ModuleDefinition[] = [
     showCostCenter: true,
     requireCostCenter: true,
     requireAmount: true,
+    titleLabel: "Descrição do item contratado",
+    visibleBaseFields: ["code", "amount", "status"],
+    baseFieldLabels: {
+      code: "Código do item",
+      amount: "Valor contratado do item (R$)",
+      status: "Situação do item",
+    },
+    statusOptions: ["planejado", "aprovado", "cancelado"],
+    defaultStatus: "planejado",
     fields: [
       { key: "atividade", label: "Atividade / etapa" },
       { key: "categoria", label: "Categoria de custo" },
@@ -108,11 +142,17 @@ export const MODULES: ModuleDefinition[] = [
       "Use a Administração Central para despesas do escritório e centros próprios para cada obra.",
     icon: Wallet,
     showWork: true,
+    titleLabel: "Nome do centro de custo",
+    visibleBaseFields: ["status"],
+    baseFieldLabels: { status: "Situação do centro" },
+    statusOptions: ["ativo", "cancelado"],
+    defaultStatus: "ativo",
     fields: [
       {
         key: "tipo",
         label: "Vinculação",
         kind: "select",
+        required: true,
         options: ["Obra", "Administração"],
       },
       { key: "responsavelCentro", label: "Responsável pelo centro" },
@@ -128,6 +168,14 @@ export const MODULES: ModuleDefinition[] = [
       "Planeje frentes, prazos, responsáveis e avanço das atividades.",
     icon: CalendarDays,
     showWork: true,
+    titleLabel: "Atividade do cronograma",
+    visibleBaseFields: ["status", "responsible"],
+    baseFieldLabels: {
+      status: "Situação da atividade",
+      responsible: "Responsável pela atividade",
+    },
+    statusOptions: ["planejado", "em_andamento", "concluido", "cancelado"],
+    defaultStatus: "planejado",
     fields: [
       { key: "inicio", label: "Data de início", kind: "date" },
       { key: "termino", label: "Data de término", kind: "date" },
@@ -146,6 +194,23 @@ export const MODULES: ModuleDefinition[] = [
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
+    titleLabel: "Descrição do pedido",
+    visibleBaseFields: ["code", "status", "responsible"],
+    baseFieldLabels: {
+      code: "Código do pedido",
+      status: "Situação do pedido",
+      responsible: "Almoxarife responsável",
+    },
+    statusOptions: [
+      "pendente",
+      "em_analise",
+      "aprovado",
+      "em_compra",
+      "parcial",
+      "recebido",
+      "cancelado",
+    ],
+    defaultStatus: "pendente",
     fields: [
       { key: "material", label: "Material / serviço" },
       { key: "unidade", label: "Unidade", placeholder: "un, m, kg…" },
@@ -168,6 +233,24 @@ export const MODULES: ModuleDefinition[] = [
     showCostCenter: true,
     requireCostCenter: true,
     requireAmount: true,
+    titleLabel: "Descrição da compra",
+    visibleBaseFields: ["code", "amount", "recordDate", "status", "responsible"],
+    baseFieldLabels: {
+      code: "Código da compra",
+      amount: "Valor total da compra (R$)",
+      recordDate: "Data da compra",
+      status: "Situação da compra",
+      responsible: "Comprador responsável",
+    },
+    statusOptions: [
+      "pendente",
+      "em_analise",
+      "aprovado",
+      "parcial",
+      "recebido",
+      "cancelado",
+    ],
+    defaultStatus: "pendente",
     fields: [
       { key: "pedidoOrigem", label: "Código do pedido" },
       { key: "fornecedor", label: "Fornecedor", required: true },
@@ -189,6 +272,9 @@ export const MODULES: ModuleDefinition[] = [
     description: "Compare fornecedores, preços, prazos e condições comerciais.",
     icon: Scale,
     showWork: true,
+    titleLabel: "Item / descrição da cotação",
+    visibleBaseFields: ["code"],
+    baseFieldLabels: { code: "Código do mapa de cotação" },
     fields: [
       { key: "itemCotado", label: "Item cotado", required: true },
       { key: "fornecedor", label: "Fornecedor", required: true },
@@ -214,6 +300,9 @@ export const MODULES: ModuleDefinition[] = [
     group: "Suprimentos",
     description: "Mantenha os dados comerciais e contatos dos fornecedores.",
     icon: Truck,
+    titleLabel: "Nome / razão social",
+    visibleBaseFields: ["code"],
+    baseFieldLabels: { code: "Código interno do fornecedor" },
     fields: [
       { key: "documento", label: "CNPJ / CPF" },
       { key: "contato", label: "Contato" },
@@ -229,6 +318,21 @@ export const MODULES: ModuleDefinition[] = [
     group: "Suprimentos",
     description: "Controle escopo, valor, fornecedor e vigência contratual.",
     icon: FileCheck2,
+    titleLabel: "Descrição do contrato",
+    visibleBaseFields: ["code", "amount", "status"],
+    baseFieldLabels: {
+      code: "Código interno do contrato",
+      amount: "Valor contratado do fornecedor (R$)",
+      status: "Situação do contrato",
+    },
+    statusOptions: [
+      "pendente",
+      "aprovado",
+      "em_andamento",
+      "concluido",
+      "cancelado",
+    ],
+    defaultStatus: "pendente",
     showWork: true,
     fields: [
       { key: "fornecedor", label: "Fornecedor", required: true },
@@ -244,6 +348,16 @@ export const MODULES: ModuleDefinition[] = [
     group: "Suprimentos",
     description: "Registre períodos, quantidades executadas e valores medidos.",
     icon: FileSpreadsheet,
+    titleLabel: "Descrição da medição",
+    visibleBaseFields: ["amount", "recordDate", "status", "responsible"],
+    baseFieldLabels: {
+      amount: "Valor aprovado da medição (R$)",
+      recordDate: "Data da medição",
+      status: "Situação da medição",
+      responsible: "Responsável pela medição",
+    },
+    statusOptions: ["em_analise", "aprovado", "concluido", "cancelado"],
+    defaultStatus: "em_analise",
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
@@ -272,6 +386,16 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Registre recebimentos e conferências de material no almoxarifado.",
     icon: PackagePlus,
+    titleLabel: "Identificação do recebimento",
+    visibleBaseFields: ["quantity", "recordDate", "status", "responsible"],
+    baseFieldLabels: {
+      quantity: "Quantidade recebida",
+      recordDate: "Data do recebimento",
+      status: "Situação do recebimento",
+      responsible: "Almoxarife responsável",
+    },
+    statusOptions: ["concluido", "cancelado"],
+    defaultStatus: "concluido",
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
@@ -295,6 +419,16 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Registre a saída do estoque e identifique o encarregado responsável.",
     icon: PackageMinus,
+    titleLabel: "Identificação da retirada",
+    visibleBaseFields: ["quantity", "recordDate", "status", "responsible"],
+    baseFieldLabels: {
+      quantity: "Quantidade retirada",
+      recordDate: "Data da retirada",
+      status: "Situação da retirada",
+      responsible: "Encarregado responsável",
+    },
+    statusOptions: ["concluido", "cancelado"],
+    defaultStatus: "concluido",
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
@@ -314,6 +448,9 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Compare material adquirido, planejamento da atividade e consumo realizado.",
     icon: PackageCheck,
+    titleLabel: "Identificação do consumo",
+    visibleBaseFields: ["recordDate"],
+    baseFieldLabels: { recordDate: "Data do consumo" },
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
@@ -348,6 +485,8 @@ export const MODULES: ModuleDefinition[] = [
     group: "Equipe",
     description: "Cadastre profissionais e dados básicos da equipe.",
     icon: Users,
+    titleLabel: "Nome do colaborador",
+    visibleBaseFields: [],
     fields: [
       { key: "documento", label: "CPF" },
       { key: "funcao", label: "Função" },
@@ -363,6 +502,17 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Acompanhe período, colaborador e valor líquido da folha por obra.",
     icon: HardHat,
+    titleLabel: "Colaborador / período da folha",
+    visibleBaseFields: ["code", "amount", "recordDate", "status", "responsible"],
+    baseFieldLabels: {
+      code: "Referência da folha",
+      amount: "Valor líquido da folha (R$)",
+      recordDate: "Data de referência",
+      status: "Situação da folha",
+      responsible: "Responsável pelo lançamento",
+    },
+    statusOptions: ["pendente", "aprovado", "pago", "cancelado"],
+    defaultStatus: "pendente",
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
@@ -393,6 +543,12 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Controle parcelas, documentos, vencimentos e recebimentos de clientes.",
     icon: ReceiptText,
+    titleLabel: "Descrição / parcela a receber",
+    visibleBaseFields: ["amount", "recordDate"],
+    baseFieldLabels: {
+      amount: "Valor a receber (R$)",
+      recordDate: "Data de emissão",
+    },
     showWork: true,
     requireAmount: true,
     fields: [
@@ -410,6 +566,12 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Controle compromissos, vencimentos, baixas parciais e categorias de custo.",
     icon: Banknote,
+    titleLabel: "Descrição / parcela a pagar",
+    visibleBaseFields: ["amount", "recordDate"],
+    baseFieldLabels: {
+      amount: "Valor do compromisso (R$)",
+      recordDate: "Data de emissão",
+    },
     showWork: true,
     showCostCenter: true,
     requireCostCenter: true,
@@ -442,6 +604,7 @@ export const MODULES: ModuleDefinition[] = [
     description:
       "Compare valores contratados, custos registrados e recebimentos por obra.",
     icon: Wallet,
+    visibleBaseFields: [],
     report: true,
   },
 ];

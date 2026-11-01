@@ -99,6 +99,8 @@ export default function DashboardLayout({
                 value={authName}
                 onChange={event => setAuthName(event.target.value)}
                 autoComplete="name"
+                minLength={2}
+                maxLength={160}
                 required
               />
             )}
@@ -114,11 +116,18 @@ export default function DashboardLayout({
             <input
               className="form-control"
               type="password"
-              placeholder="Senha (mínimo de 8 caracteres)"
+              placeholder={
+                authMode === "register"
+                  ? "Senha (mínimo de 8 caracteres)"
+                  : "Senha"
+              }
               value={authPassword}
               onChange={event => setAuthPassword(event.target.value)}
-              autoComplete={authMode === "login" ? "current-password" : "new-password"}
-              minLength={8}
+              autoComplete={
+                authMode === "login" ? "current-password" : "new-password"
+              }
+              minLength={authMode === "register" ? 8 : undefined}
+              maxLength={128}
               required
             />
             {authNotice && <span className="login-notice" role="status">{authNotice}</span>}
