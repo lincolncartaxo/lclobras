@@ -7,18 +7,22 @@ import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { registerStorageProxy } from "./storageProxy";
 
-async function startServer() {
+export function createExpressApp() {
   const app = express();
-  const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
+  
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
+  
   registerOAuthRoutes(app);
+  registerStorageProxy(app);
+  
   app.use("/api/trpc", (req, res, next) => {
     if (req.method === "POST" && req.get("sec-fetch-site") === "cross-site") {
       return res.status(403).json({ error: "Cross-site mutations are not allowed." });
@@ -28,7 +32,7 @@ async function startServer() {
     }
     next();
   });
-  // tRPC API
+  
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -36,7 +40,14 @@ async function startServer() {
       createContext,
     })
   );
-  // development mode uses Vite, production mode uses static files
+  
+  return app;
+}
+
+async function startServer() {
+  const app = createExpressApp();
+  const server = createServer(app);
+
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
@@ -45,8 +56,12 @@ async function startServer() {
 
   const port = Number(process.env.PORT || "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
+  
   server.on("error", error => { console.error("Server failed:", error.message); process.exit(1); });
   server.listen(port, "0.0.0.0", () => console.log(`Server listening on port ${port}`));
 }
 
-startServer().catch(error => { console.error(error); process.exit(1); });
+// Only start the server automatically if we are not running inside Vercel Serverless
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+  startServer().catch(error => { console.error(error); process.exit(1); });
+}
